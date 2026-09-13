@@ -1,4 +1,6 @@
+import re
 from datetime import timedelta
+from fastapi.security import OAuth2PasswordRequestForm
 from typing import Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -13,11 +15,19 @@ router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 @router.post("/login", response_model=Token)
 async def login(login_data: LoginRequest, db: AsyncIOMotorDatabase = Depends(get_database)):
     """
-    Unified Login endpoint for Admin and Student accounts with MongoDB.
+    Unified Login endpoint for Admin, Teacher, and Student accounts with MongoDB.
     Passwords verified via bcrypt against salted hashes.
     Issues JWT bearer token.
     """
-    user = await db.users.find_one({"username": login_data.username})
+    clean_username = login_data.username.strip()
+    user = await db.users.find_one({"username": clean_username})
+    if not user:
+        user = await db.users.find_one({
+            "$or": [
+                {"username": {"$regex": f"^{re.escape(clean_username)}$", "$options": "i"}},
+                {"certificate_number": {"$regex": f"^{re.escape(clean_username)}$", "$options": "i"}}
+            ]
+        })
     
     if not user or not verify_password(login_data.password, user.get("password_hash", "")):
         raise HTTPException(
@@ -45,6 +55,7 @@ async def login(login_data: LoginRequest, db: AsyncIOMotorDatabase = Depends(get
         "role": user_role,
         "certificate_number": user.get("certificate_number"),
         "user_id": user_id_str,
+        "token_version": user.get("token_version", 0),
         "full_name": user.get("full_name")
     }
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -77,3 +88,12 @@ async def get_current_user_profile(current_user: Dict[str, Any] = Depends(get_cu
         full_name=current_user.get("full_name"),
         is_active=current_user.get("is_active", True)
     )
+
+
+@router.post("/token", response_model=Token)
+async def token(form: OAuth2PasswordRequestForm = Depends(), db=Depends(get_database)):
+    return await login(LoginRequest(username=form.username, password=form.password), db)
+
+@router.post("/logout", status_code=204)
+async def logout(user=Depends(get_current_user), db=Depends(get_database)):
+    await db.users.update_one({"_id": user["_id"]}, {"$inc": {"token_version": 1}})

@@ -7,7 +7,7 @@ from app.database import get_database
 from app.schemas.attendance import (
     AttendanceOut, AttendanceCreate, AttendanceUpdate, AttendanceBulkCreate
 )
-from app.dependencies import get_current_user, require_admin
+from app.dependencies import get_current_user, require_staff
 
 router = APIRouter(prefix="/api/attendance", tags=["Attendance Muster"])
 
@@ -66,7 +66,7 @@ async def get_attendance(
 async def create_or_upsert_attendance(
     record: AttendanceCreate,
     db: AsyncIOMotorDatabase = Depends(get_database),
-    current_user: Dict[str, Any] = Depends(require_admin)
+    current_user: Dict[str, Any] = Depends(require_staff)
 ):
     """Mark attendance for a student in a slot (Admin only) with upsert."""
     query = {
@@ -109,7 +109,7 @@ async def create_or_upsert_attendance(
 async def bulk_save_attendance(
     payload: AttendanceBulkCreate,
     db: AsyncIOMotorDatabase = Depends(get_database),
-    current_user: Dict[str, Any] = Depends(require_admin)
+    current_user: Dict[str, Any] = Depends(require_staff)
 ):
     """
     Bulk upsert 3-slot muster table attendance records in MongoDB (Admin only).
@@ -157,7 +157,7 @@ async def update_attendance(
     record_id: str,
     update_data: AttendanceUpdate,
     db: AsyncIOMotorDatabase = Depends(get_database),
-    current_user: Dict[str, Any] = Depends(require_admin)
+    current_user: Dict[str, Any] = Depends(require_staff)
 ):
     """Update a specific attendance record by ID."""
     update_fields = {}
@@ -183,7 +183,7 @@ async def update_attendance(
 async def delete_attendance(
     record_id: str,
     db: AsyncIOMotorDatabase = Depends(get_database),
-    current_user: Dict[str, Any] = Depends(require_admin)
+    current_user: Dict[str, Any] = Depends(require_staff)
 ):
     """Delete attendance record by ID."""
     res = await db.attendance.delete_one({"$or": [{"_id": record_id}, {"id": record_id}]})
@@ -196,7 +196,7 @@ async def clear_day_attendance(
     date: str,
     course: Optional[str] = None,
     db: AsyncIOMotorDatabase = Depends(get_database),
-    current_user: Dict[str, Any] = Depends(require_admin)
+    current_user: Dict[str, Any] = Depends(require_staff)
 ):
     """Reset attendance records for a specific date (and optional course)."""
     filter_q = {"date": date}

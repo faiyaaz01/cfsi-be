@@ -9,39 +9,37 @@ async def seed_database():
 
     try:
         # 1. Seed Institutional Administrator Account (Password hashed with bcrypt)
-        # Clean up legacy demo admin if present
-        await db.users.delete_many({"username": "admin"})
+        from app.config import settings
+        if settings.BOOTSTRAP_ADMIN_PASSWORD and not await db.users.find_one({"role": "admin"}):
+            await db.users.insert_one({
+                "_id": "user-admin", "username": settings.BOOTSTRAP_ADMIN_USERNAME,
+                "password_hash": hash_password(settings.BOOTSTRAP_ADMIN_PASSWORD),
+                "role": "admin", "full_name": "CFSI Administrator", "is_active": True,
+                "token_version": 0,
+            })
 
-        admin_email = "admin@cfsi.com"
-        admin_doc = {
-            "_id": "user-admin",
-            "id": "user-admin",
-            "username": admin_email,
-            "password_hash": hash_password("Password@1"),
-            "role": "admin",
-            "full_name": "CFSI Administrator",
-            "certificate_number": None,
-            "is_active": True,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
+        if not await db.users.find_one({"role": "teacher"}):
+            await db.users.insert_one({
+                "_id": "user-teacher",
+                "username": "teacher@cfsi.com",
+                "password_hash": hash_password("Teacher@1"),
+                "role": "teacher",
+                "full_name": "Senior Safety Instructor",
+                "is_active": True,
+                "token_version": 0,
+            })
 
-        existing_admin = await db.users.find_one({"username": admin_email})
-        if not existing_admin:
-            await db.users.insert_one(admin_doc)
-        else:
-            await db.users.update_one(
-                {"username": admin_email},
-                {"$set": {
-                    "password_hash": hash_password("Password@1"),
-                    "full_name": "CFSI Administrator",
-                    "role": "admin",
-                    "is_active": True
-                }}
-            )
-
-        # Clean up mock demo accounts from users collection
-        demo_usernames = ["rahul", "amitabh", "priyanka", "hardik", "manish"]
-        await db.users.delete_many({"username": {"$in": demo_usernames}})
+        if not await db.users.find_one({"role": "student"}):
+            await db.users.insert_one({
+                "_id": "user-student-rahul",
+                "username": "CFSI-2023-0101",
+                "certificate_number": "CFSI-2023-0101",
+                "password_hash": hash_password("Student@1"),
+                "role": "student",
+                "full_name": "Rahul V. Patel",
+                "is_active": True,
+                "token_version": 0,
+            })
 
         # 2. Seed Students
         students_data = [

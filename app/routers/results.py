@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.database import get_database
 from app.schemas.result import ResultOut, ResultCreate, ResultUpdate
-from app.dependencies import get_current_user, require_admin
+from app.dependencies import get_current_user, require_staff
 
 router = APIRouter(prefix="/api/results", tags=["Examination Results"])
 
@@ -59,7 +59,7 @@ async def get_results(
 async def create_result(
     record: ResultCreate,
     db: AsyncIOMotorDatabase = Depends(get_database),
-    current_user: Dict[str, Any] = Depends(require_admin)
+    current_user: Dict[str, Any] = Depends(require_staff)
 ):
     """Publish a new examination result in MongoDB (Admin only)."""
     new_id = record.id or f"res-{uuid.uuid4().hex[:8]}"
@@ -87,7 +87,7 @@ async def update_result(
     result_id: str,
     update_data: ResultUpdate,
     db: AsyncIOMotorDatabase = Depends(get_database),
-    current_user: Dict[str, Any] = Depends(require_admin)
+    current_user: Dict[str, Any] = Depends(require_staff)
 ):
     """Update result scores or remarks in MongoDB (Admin only)."""
     update_fields = {}
@@ -121,7 +121,7 @@ async def update_result(
 async def delete_result(
     result_id: str,
     db: AsyncIOMotorDatabase = Depends(get_database),
-    current_user: Dict[str, Any] = Depends(require_admin)
+    current_user: Dict[str, Any] = Depends(require_staff)
 ):
     """Delete an examination result from MongoDB (Admin only)."""
     res = await db.results.delete_one({"$or": [{"_id": result_id}, {"id": result_id}]})

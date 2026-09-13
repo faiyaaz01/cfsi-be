@@ -32,7 +32,7 @@ app = FastAPI(
 # CORS Configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins for easy development and network testing
+    allow_origins=[origin for origin in settings.CORS_ORIGINS if origin != "*"],  # Allows all origins for easy development and network testing
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -64,3 +64,6 @@ def healthcheck():
         "is_mock": db_manager.is_mock,
         "message": "Connected to MongoDB" if not db_manager.is_mock else "Running on mongomock development engine"
     }
+
+from app.routers.users import router as users_router
+app.include_router(users_router)

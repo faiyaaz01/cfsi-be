@@ -39,6 +39,10 @@ async def list_students(
     if course:
         filter_q["course"] = course
     
+    if current_user["role"] == "student":
+        if not current_user.get("certificate_number"):
+            return []
+        filter_q["certificate_number"] = current_user["certificate_number"]
     cursor = db.students.find(filter_q)
     results = []
     async for doc in cursor:
@@ -56,6 +60,8 @@ async def verify_certificate(
     NOTE: As requested, this action requires an authenticated session (JWT).
     """
     clean_cert = certificate_number.strip()
+    if current_user["role"] == "student" and clean_cert.lower() != (current_user.get("certificate_number") or "").lower():
+        raise HTTPException(status_code=403, detail="You can only access your own certificate")
     regex_pattern = f"^{re.escape(clean_cert)}$"
     doc = await db.students.find_one({
         "certificate_number": {"$regex": regex_pattern, "$options": "i"}
@@ -82,6 +88,8 @@ async def get_student_by_cert(
 ):
     """Fetch details of a single student by certificate number."""
     clean_cert = certificate_number.strip()
+    if current_user["role"] == "student" and clean_cert.lower() != (current_user.get("certificate_number") or "").lower():
+        raise HTTPException(status_code=403, detail="You can only access your own certificate")
     regex_pattern = f"^{re.escape(clean_cert)}$"
     doc = await db.students.find_one({
         "certificate_number": {"$regex": regex_pattern, "$options": "i"}

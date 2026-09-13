@@ -5,7 +5,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.database import get_database
 from app.security import decode_access_token
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)
 
 async def get_current_user(
     token: Optional[str] = Depends(oauth2_scheme),
@@ -28,7 +28,7 @@ async def get_current_user(
         raise credentials_exception
     
     user = await db.users.find_one({"username": username, "is_active": True})
-    if not user:
+    if not user or payload.get("user_id") != str(user["_id"]) or payload.get("token_version", 0) != user.get("token_version", 0):
         raise credentials_exception
     
     # Normalize ID to string
@@ -41,16 +41,7 @@ async def get_current_user_optional(
 ) -> Optional[Dict[str, Any]]:
     if not token:
         return None
-    payload = decode_access_token(token)
-    if not payload:
-        return None
-    username = payload.get("sub")
-    if not username:
-        return None
-    user = await db.users.find_one({"username": username, "is_active": True})
-    if user:
-        user["id"] = str(user.get("_id", user.get("id", "")))
-    return user
+    return await get_current_user(token, db)
 
 async def require_admin(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     if current_user.get("role") != "admin":
@@ -66,4 +57,10 @@ async def require_student(current_user: Dict[str, Any] = Depends(get_current_use
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Student access required for this operation"
         )
+    return current_user
+
+
+async def require_staff(current_user=Depends(get_current_user)):
+    if current_user.get("role") not in ("admin", "teacher"):
+        raise HTTPException(status_code=403, detail="Admin or Teacher access required")
     return current_user
