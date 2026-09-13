@@ -49,7 +49,8 @@ Enterprise FastAPI backend for CFSI portal with MongoDB, Bcrypt password hashing
 
 ---
 
-## 🔑 Default Seed Accounts (Hashed in DB)
+## 🔑 Administrator Account (Bcrypt Hashed in DB)
 
-- **Admin**: `admin` / `cfsiadmin`
-- **Cadets**: `rahul`, `amitabh`, `priyanka`, `hardik`, `manish` with password `password123`
+- **ID / Email**: `admin@cfsi.com`
+- **Password**: `Password@1`
+- **Role**: `admin` (Full administrative privileges)

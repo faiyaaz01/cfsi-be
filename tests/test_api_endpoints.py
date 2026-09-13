@@ -1,3 +1,7 @@
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import asyncio
 from fastapi.testclient import TestClient
 from app.main import app
@@ -16,12 +20,12 @@ def test_api():
         print("[OK] Unauthenticated verification properly rejected with 401 Unauthorized!")
 
         print("\n--- 3. Testing Admin Login & JWT Generation ---")
-        login_res = client.post("/api/auth/login", json={"username": "admin", "password": "cfsiadmin"})
+        login_res = client.post("/api/auth/login", json={"username": "admin@cfsi.com", "password": "Password@1"})
         assert login_res.status_code == 200, f"Admin login failed: {login_res.text}"
         admin_data = login_res.json()
         admin_token = admin_data["access_token"]
         assert admin_data["role"] == "admin"
-        print(f"[OK] Admin logged in successfully! Role: {admin_data['role']}")
+        print(f"[OK] Admin logged in successfully as {admin_data['user']['username']}! Role: {admin_data['role']}")
 
         headers_admin = {"Authorization": f"Bearer {admin_token}"}
 
@@ -33,20 +37,12 @@ def test_api():
         assert verify_json["student"]["name"] == "Rahul V. Patel"
         print(f"[OK] Verified Cadet: {verify_json['student']['name']}, Status: {verify_json['student']['verificationStatus']}")
 
-        print("\n--- 5. Testing Student Login & Scope Restrictions ---")
-        student_res = client.post("/api/auth/login", json={"username": "rahul", "password": "password123"})
-        assert student_res.status_code == 200
-        student_data = student_res.json()
-        student_token = student_data["access_token"]
-        headers_student = {"Authorization": f"Bearer {student_token}"}
-        print(f"[OK] Cadet Rahul logged in! Cert: {student_data['user']['certificate_number']}")
-
-        # Cadet fetching own results
-        res_res = client.get("/api/results", headers=headers_student)
+        print("\n--- 5. Testing Admin Results Management ---")
+        res_res = client.get("/api/results", headers=headers_admin)
         assert res_res.status_code == 200
         results_list = res_res.json()
         assert len(results_list) > 0
-        print(f"[OK] Cadet retrieved {len(results_list)} results. Top subject: {results_list[0]['subject']}")
+        print(f"[OK] Admin retrieved {len(results_list)} examination records.")
 
         print("\n--- 6. Testing 3-Slot Daily Muster Attendance Bulk Save ---")
         muster_records = [

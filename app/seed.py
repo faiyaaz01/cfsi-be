@@ -8,75 +8,40 @@ async def seed_database():
     db = get_database()
 
     try:
-        # 1. Seed Users (passwords hashed with bcrypt)
-        existing_admin = await db.users.find_one({"username": "admin"})
+        # 1. Seed Institutional Administrator Account (Password hashed with bcrypt)
+        # Clean up legacy demo admin if present
+        await db.users.delete_many({"username": "admin"})
+
+        admin_email = "admin@cfsi.com"
+        admin_doc = {
+            "_id": "user-admin",
+            "id": "user-admin",
+            "username": admin_email,
+            "password_hash": hash_password("Password@1"),
+            "role": "admin",
+            "full_name": "CFSI Administrator",
+            "certificate_number": None,
+            "is_active": True,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+
+        existing_admin = await db.users.find_one({"username": admin_email})
         if not existing_admin:
-            admin_user = {
-                "_id": "user-admin",
-                "id": "user-admin",
-                "username": "admin",
-                "password_hash": hash_password("cfsiadmin"),
-                "role": "admin",
-                "full_name": "CFSI Chief Administrator",
-                "certificate_number": None,
-                "is_active": True,
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
-            await db.users.insert_one(admin_user)
+            await db.users.insert_one(admin_doc)
+        else:
+            await db.users.update_one(
+                {"username": admin_email},
+                {"$set": {
+                    "password_hash": hash_password("Password@1"),
+                    "full_name": "CFSI Administrator",
+                    "role": "admin",
+                    "is_active": True
+                }}
+            )
 
-        demo_cadets = [
-            {
-                "username": "rahul",
-                "password": "password123",
-                "role": "student",
-                "certificate_number": "CFSI-2023-0101",
-                "full_name": "Rahul V. Patel"
-            },
-            {
-                "username": "amitabh",
-                "password": "password123",
-                "role": "student",
-                "certificate_number": "CFSI-2023-0102",
-                "full_name": "Amitabh S. Sharma"
-            },
-            {
-                "username": "priyanka",
-                "password": "password123",
-                "role": "student",
-                "certificate_number": "CFSI-2023-0103",
-                "full_name": "Priyanka D. Parmar"
-            },
-            {
-                "username": "hardik",
-                "password": "password123",
-                "role": "student",
-                "certificate_number": "CFSI-2024-0201",
-                "full_name": "Hardik K. Solanki"
-            },
-            {
-                "username": "manish",
-                "password": "password123",
-                "role": "student",
-                "certificate_number": "CFSI-2024-0202",
-                "full_name": "Manish R. Yadav"
-            }
-        ]
-
-        for cadet in demo_cadets:
-            existing = await db.users.find_one({"username": cadet["username"]})
-            if not existing:
-                u = {
-                    "_id": f"user-{cadet['username']}",
-                    "id": f"user-{cadet['username']}",
-                    "username": cadet["username"],
-                    "password_hash": hash_password(cadet["password"]),
-                    "role": cadet["role"],
-                    "certificate_number": cadet["certificate_number"],
-                    "full_name": cadet["full_name"],
-                    "is_active": True,
-                    "created_at": datetime.now(timezone.utc).isoformat()
-                }
-                await db.users.insert_one(u)
+        # Clean up mock demo accounts from users collection
+        demo_usernames = ["rahul", "amitabh", "priyanka", "hardik", "manish"]
+        await db.users.delete_many({"username": {"$in": demo_usernames}})
 
         # 2. Seed Students
         students_data = [
