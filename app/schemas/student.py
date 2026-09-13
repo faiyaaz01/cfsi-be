@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 class StudentBase(BaseModel):
     id: str
     roll_no: str = Field(..., alias="rollNo")
+    enrollment_no: Optional[str] = Field(None, alias="enrollmentNo")
     name: str
     father_name: str = Field(..., alias="fatherName")
     course: str
@@ -14,6 +15,9 @@ class StudentBase(BaseModel):
     verification_status: str = Field(default="Verified", alias="verificationStatus")
     issue_date: str = Field(..., alias="issueDate")
     center_location: str = Field(..., alias="centerLocation")
+    center_name: Optional[str] = Field(None, alias="centerName")
+    mode: Optional[str] = Field("REGULAR", alias="mode")
+    gender: Optional[str] = Field("MALE", alias="gender")
     photo_url: Optional[str] = Field(None, alias="photoUrl")
     mother_name: Optional[str] = Field(None, alias="motherName")
     birth_date: Optional[str] = Field(None, alias="birthDate")
@@ -41,6 +45,7 @@ class StudentProfileUpdate(BaseModel):
     name: Optional[str] = None
     photo_url: Optional[str] = Field(None, alias="photoUrl")
     birth_date: Optional[str] = Field(None, alias="birthDate")
+    gender: Optional[str] = Field(None, alias="gender")
     mother_name: Optional[str] = Field(None, alias="motherName")
     father_name: Optional[str] = Field(None, alias="fatherName")
     present_address: Optional[str] = Field(None, alias="presentAddress")
@@ -52,14 +57,22 @@ class StudentProfileUpdate(BaseModel):
     email: Optional[str] = Field(None, alias="email")
     nationality: Optional[str] = Field("Indian", alias="nationality")
     state: Optional[str] = Field("Gujarat", alias="state")
+    enrollment_no: Optional[str] = Field(None, alias="enrollmentNo")
+    center_name: Optional[str] = Field(None, alias="centerName")
+    center_location: Optional[str] = Field(None, alias="centerLocation")
+    mode: Optional[str] = Field(None, alias="mode")
 
     class Config:
         populate_by_name = True
 
 class BulkStudentImportItem(BaseModel):
-    roll_no: str = Field(..., alias="rollNo")
+    roll_no: Optional[str] = Field(None, alias="rollNo")
+    student_id: Optional[str] = Field(None, alias="studentId")
+    enrollment_no: Optional[str] = Field(None, alias="enrollmentNo")
+    session_year: Optional[str] = Field(None, alias="sessionYear")
     name: str
     birth_date: str = Field(..., alias="birthDate")
+    gender: Optional[str] = "MALE"
     course: Optional[str] = "Diploma In Fire Safety"
     batch: Optional[str] = "Batch 2026-2027"
     passing_year: Optional[str] = Field("2027", alias="passingYear")
@@ -68,6 +81,8 @@ class BulkStudentImportItem(BaseModel):
     verification_status: Optional[str] = Field("Verified", alias="verificationStatus")
     issue_date: Optional[str] = Field("Ongoing", alias="issueDate")
     center_location: Optional[str] = Field("CFSI Vadodara Main Campus, Gujarat", alias="centerLocation")
+    center_name: Optional[str] = Field(None, alias="centerName")
+    mode: Optional[str] = Field("REGULAR", alias="mode")
     photo_url: Optional[str] = Field(None, alias="photoUrl")
     mother_name: Optional[str] = Field(None, alias="motherName")
     father_name: Optional[str] = Field(None, alias="fatherName")
@@ -91,6 +106,7 @@ class BulkImportRequest(BaseModel):
 class BulkImportStudentSummary(BaseModel):
     student_id: str
     roll_no: str
+    enrollment_no: Optional[str] = None
     name: str
     birth_date: str
     generated_password: str

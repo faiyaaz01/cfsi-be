@@ -30,6 +30,20 @@ async def seed_database():
             })
 
         # 2. Clean up legacy student records and student users
+        try:
+            student_indexes = await db.students.index_information()
+            if "certificate_number_1" in student_indexes:
+                await db.students.drop_index("certificate_number_1")
+        except Exception:
+            pass
+
+        try:
+            user_indexes = await db.users.index_information()
+            if "certificate_number_1" in user_indexes:
+                await db.users.drop_index("certificate_number_1")
+        except Exception:
+            pass
+
         await db.students.delete_many({
             "$or": [
                 {"certificate_number": {"$exists": True}},
@@ -44,254 +58,35 @@ async def seed_database():
             ]
         })
 
-        # 3. Seed Batch 2026-2027 Students (Student IDs formatted as 2627<rollno>)
-        students_data = [
-            {
-                "_id": "262701",
-                "id": "262701",
-                "roll_no": "01",
-                "name": "Aarav N. Sharma",
-                "father_name": "Naresh Sharma",
-                "mother_name": "Sunita Sharma",
-                "birth_date": "2004-05-14",
-                "course": "Diploma In Fire Safety",
-                "batch": "Batch 2026-2027",
-                "passing_year": "2027",
-                "grade": "Distinction (A+)",
-                "percentage": "89.5%",
-                "verification_status": "Verified",
-                "issue_date": "15 June 2027",
-                "center_location": "CFSI Vadodara Main Campus, Gujarat",
-                "photo_url": "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=200&q=80",
-                "present_address": "B-402, Shivalik Heights, Waghodia Road, Vadodara, Gujarat - 390019",
-                "student_phone": "+91 98765 43210",
-                "father_phone": "+91 98765 11111",
-                "mother_phone": "+91 98765 22222",
-                "category": "General",
-                "aadhar_card": "4532 8901 2345",
-                "email": "aarav.sharma@gmail.com",
-                "nationality": "Indian",
-                "state": "Gujarat"
-            },
-            {
-                "_id": "262702",
-                "id": "262702",
-                "roll_no": "02",
-                "name": "Diya K. Patel",
-                "father_name": "Kiritkumar Patel",
-                "mother_name": "Bhavanaben Patel",
-                "birth_date": "2004-09-22",
-                "course": "Sub Fire Officer",
-                "batch": "Batch 2026-2027",
-                "passing_year": "2027",
-                "grade": "First Class (A)",
-                "percentage": "84.0%",
-                "verification_status": "Verified",
-                "issue_date": "28 July 2027",
-                "center_location": "CFSI Vadodara Main Campus, Gujarat",
-                "photo_url": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=200&q=80",
-                "present_address": "12, Gokul Residency, Alkapuri, Vadodara, Gujarat - 390007",
-                "student_phone": "+91 98234 56789",
-                "father_phone": "+91 98234 11111",
-                "mother_phone": "+91 98234 22222",
-                "category": "OBC",
-                "aadhar_card": "7890 1234 5678",
-                "email": "diya.patel@gmail.com",
-                "nationality": "Indian",
-                "state": "Gujarat"
-            },
-            {
-                "_id": "262703",
-                "id": "262703",
-                "roll_no": "03",
-                "name": "Rohan S. Mehta",
-                "father_name": "Suresh Mehta",
-                "mother_name": "Geeta Mehta",
-                "birth_date": "2003-12-05",
-                "course": "Certificate In Fire Safety",
-                "batch": "Batch 2026-2027",
-                "passing_year": "2027",
-                "grade": "Distinction (A+)",
-                "percentage": "92.0%",
-                "verification_status": "Verified",
-                "issue_date": "10 January 2027",
-                "center_location": "CFSI Vadodara Main Campus, Gujarat",
-                "photo_url": "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=200&q=80",
-                "present_address": "Flat 301, Pushpak Complex, Manjalpur, Vadodara - 390011",
-                "student_phone": "+91 97123 45678",
-                "father_phone": "+91 97123 11111",
-                "mother_phone": "+91 97123 22222",
-                "category": "General",
-                "aadhar_card": "2345 6789 0123",
-                "email": "rohan.mehta@gmail.com",
-                "nationality": "Indian",
-                "state": "Gujarat"
-            },
-            {
-                "_id": "262704",
-                "id": "262704",
-                "roll_no": "04",
-                "name": "Ananya R. Desai",
-                "father_name": "Rajesh Desai",
-                "mother_name": "Meenaben Desai",
-                "birth_date": "2005-03-18",
-                "course": "Industrial Safety",
-                "batch": "Batch 2026-2027",
-                "passing_year": "2027",
-                "grade": "First Class (A)",
-                "percentage": "81.5%",
-                "verification_status": "Verified",
-                "issue_date": "14 April 2027",
-                "center_location": "CFSI Vadodara Main Campus, Gujarat",
-                "photo_url": "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=200&q=80",
-                "present_address": "45, Vasant Vihar, Gotri Road, Vadodara - 390021",
-                "student_phone": "+91 98456 78901",
-                "father_phone": "+91 98456 11111",
-                "mother_phone": "+91 98456 22222",
-                "category": "General",
-                "aadhar_card": "3456 7890 1234",
-                "email": "ananya.desai@gmail.com",
-                "nationality": "Indian",
-                "state": "Gujarat"
-            },
-            {
-                "_id": "262705",
-                "id": "262705",
-                "roll_no": "05",
-                "name": "Virendra M. Solanki",
-                "father_name": "Maheshbhai Solanki",
-                "mother_name": "Hansaben Solanki",
-                "birth_date": "2004-01-30",
-                "course": "Diploma In Fire Safety",
-                "batch": "Batch 2026-2027",
-                "passing_year": "2027",
-                "grade": "Distinction (A+)",
-                "percentage": "87.2%",
-                "verification_status": "Verified",
-                "issue_date": "20 June 2027",
-                "center_location": "CFSI Vadodara Main Campus, Gujarat",
-                "photo_url": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80",
-                "present_address": "Block C-104, Sardar Nagar Society, Karelibaug, Vadodara - 390018",
-                "student_phone": "+91 98980 12345",
-                "father_phone": "+91 98980 11111",
-                "mother_phone": "+91 98980 22222",
-                "category": "SC",
-                "aadhar_card": "5678 9012 3456",
-                "email": "virendra.solanki@gmail.com",
-                "nationality": "Indian",
-                "state": "Gujarat"
-            },
-            {
-                "_id": "262706",
-                "id": "262706",
-                "roll_no": "06",
-                "name": "Sneha P. Joshi",
-                "father_name": "Pradeep Joshi",
-                "mother_name": "Kalpanaben Joshi",
-                "birth_date": "2004-11-12",
-                "course": "Sub Fire Officer",
-                "batch": "Batch 2026-2027",
-                "passing_year": "2027",
-                "grade": "First Class (A)",
-                "percentage": "83.8%",
-                "verification_status": "Verified",
-                "issue_date": "18 July 2027",
-                "center_location": "CFSI Vadodara Main Campus, Gujarat",
-                "photo_url": "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=200&q=80",
-                "present_address": "8, Nilkanth Bunglows, Sayajigunj, Vadodara - 390005",
-                "student_phone": "+91 99123 45678",
-                "father_phone": "+91 99123 11111",
-                "mother_phone": "+91 99123 22222",
-                "category": "General",
-                "aadhar_card": "6789 0123 4567",
-                "email": "sneha.joshi@gmail.com",
-                "nationality": "Indian",
-                "state": "Gujarat"
-            },
-            {
-                "_id": "262707",
-                "id": "262707",
-                "roll_no": "07",
-                "name": "Karan B. Rathod",
-                "father_name": "Bhaveshbhai Rathod",
-                "mother_name": "Urmilaben Rathod",
-                "birth_date": "2003-08-25",
-                "course": "Certificate In Fire Safety",
-                "batch": "Batch 2026-2027",
-                "passing_year": "2027",
-                "grade": "First Class (B+)",
-                "percentage": "78.5%",
-                "verification_status": "Verified",
-                "issue_date": "30 July 2027",
-                "center_location": "CFSI Vadodara Main Campus, Gujarat",
-                "photo_url": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=200&q=80",
-                "present_address": "Plot 77, Maruti Green, Makarpura, Vadodara - 390014",
-                "student_phone": "+91 97234 56780",
-                "father_phone": "+91 97234 11111",
-                "mother_phone": "+91 97234 22222",
-                "category": "ST",
-                "aadhar_card": "7890 3456 1234",
-                "email": "karan.rathod@gmail.com",
-                "nationality": "Indian",
-                "state": "Gujarat"
-            },
-            {
-                "_id": "262708",
-                "id": "262708",
-                "roll_no": "08",
-                "name": "Pooja N. Dave",
-                "father_name": "Nileshbhai Dave",
-                "mother_name": "Rekhaben Dave",
-                "birth_date": "2004-07-08",
-                "course": "Industrial Safety",
-                "batch": "Batch 2026-2027",
-                "passing_year": "2027",
-                "grade": "Distinction (A+)",
-                "percentage": "90.4%",
-                "verification_status": "Verified",
-                "issue_date": "25 June 2027",
-                "center_location": "CFSI Vadodara Main Campus, Gujarat",
-                "photo_url": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80",
-                "present_address": "A-12, Radhika Township, New VIP Road, Vadodara - 390022",
-                "student_phone": "+91 98790 12345",
-                "father_phone": "+91 98790 11111",
-                "mother_phone": "+91 98790 22222",
-                "category": "EWS",
-                "aadhar_card": "8901 2345 6789",
-                "email": "pooja.dave@gmail.com",
-                "nationality": "Indian",
-                "state": "Gujarat"
-            }
+        # 3. Clean up and remove any demo students and demo student login accounts from MongoDB
+        demo_student_ids = [
+            "262701", "262702", "262703", "262704", "262705", "262706", "262707", "262708"
         ]
-
-        student_pwd_hash = hash_password("Student@1")
-        for s in students_data:
-            # Upsert into students collection
-            await db.students.update_one(
-                {"id": s["id"]},
-                {"$set": s},
-                upsert=True
-            )
-            # Upsert student login account with Student ID as username (e.g. 262701)
-            await db.users.update_one(
-                {"username": s["id"]},
-                {
-                    "$set": {
-                        "username": s["id"],
-                        "student_id": s["id"],
-                        "role": "student",
-                        "full_name": s["name"],
-                        "photo_url": s["photo_url"],
-                        "is_active": True,
-                        "token_version": 0,
-                    },
-                    "$setOnInsert": {
-                        "_id": f"user-student-{s['id']}",
-                        "password_hash": student_pwd_hash
-                    }
-                },
-                upsert=True
-            )
+        demo_student_names = [
+            "Aarav N. Sharma", "Diya K. Patel", "Rohan S. Mehta", "Ananya R. Desai",
+            "Virendra M. Solanki", "Sneha P. Joshi", "Karan B. Rathod", "Pooja N. Dave",
+            "Pooja B. Joshi", "Harshit V. Parmar", "Neha T. Chauhan"
+        ]
+        await db.students.delete_many({
+            "$or": [
+                {"id": {"$in": demo_student_ids}},
+                {"roll_no": {"$in": ["01", "02", "03", "04", "05", "06", "07", "08"]}},
+                {"name": {"$in": demo_student_names}}
+            ]
+        })
+        await db.users.delete_many({
+            "role": "student",
+            "$or": [
+                {"username": {"$in": demo_student_ids}},
+                {"student_id": {"$in": demo_student_ids}},
+                {"full_name": {"$in": demo_student_names}}
+            ]
+        })
+        await db.system_meta.update_one(
+            {"_id": "initial_seed_done"},
+            {"$set": {"initialized": True, "demo_students_removed": True}},
+            upsert=True
+        )
 
         # 3. Clean up any legacy demo attendance records
         await db.attendance.delete_many({

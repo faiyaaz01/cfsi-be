@@ -1,4 +1,5 @@
 import re
+from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -16,51 +17,71 @@ from app.security import hash_password
 
 router = APIRouter(prefix="/api/students", tags=["Students & Registry"])
 
-def format_dob_password(birth_date: str) -> str:
+def normalize_birth_date_and_password(birth_date: str) -> tuple[str, str]:
     """
-    Extracts digits from birth date into DDMMYYYY format for student passwords.
-    E.g. '23/10/2006' -> '23102006', '2006-10-23' -> '23102006', '23-10-2006' -> '23102006'.
+    Returns (clean_birth_date_dmy, dob_password_ddmmyyyy).
+    Handles:
+    - DD-MM-YYYY, DD/MM/YYYY, DD.MM.YYYY
+    - YYYY-MM-DD, YYYY/MM/DD
+    - Excel serial numbers like 36474.00011574074
+    - 8-digit strings
     """
     if not birth_date:
-        return "20060101"
+        return ("01-01-2006", "01012006")
     
     clean = str(birth_date).strip()
     
-    # Check YYYY-MM-DD or YYYY/MM/DD or YYYY.MM.DD
+    # 1. DD-MM-YYYY or DD/MM/YYYY or DD.MM.YYYY
+    m_dmy = re.match(r"^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$", clean)
+    if m_dmy:
+        p1, p2, yyyy = int(m_dmy.group(1)), int(m_dmy.group(2)), m_dmy.group(3)
+        dd, mm = p1, p2
+        if p2 > 12 and p1 <= 12:
+            dd, mm = p2, p1
+        dd_s = str(dd).zfill(2)
+        mm_s = str(mm).zfill(2)
+        return (f"{dd_s}-{mm_s}-{yyyy}", f"{dd_s}{mm_s}{yyyy}")
+    
+    # 2. YYYY-MM-DD or YYYY/MM/DD
     m_ymd = re.match(r"^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$", clean)
     if m_ymd:
         yyyy, mm, dd = m_ymd.group(1), m_ymd.group(2).zfill(2), m_ymd.group(3).zfill(2)
-        return f"{dd}{mm}{yyyy}"
+        return (f"{dd}-{mm}-{yyyy}", f"{dd}{mm}{yyyy}")
     
-    # Check DD-MM-YYYY or DD/MM/YYYY or DD.MM.YYYY
-    m_dmy = re.match(r"^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$", clean)
-    if m_dmy:
-        dd, mm, yyyy = m_dmy.group(1).zfill(2), m_dmy.group(2).zfill(2), m_dmy.group(3)
-        return f"{dd}{mm}{yyyy}"
+    # 3. Excel serial date (e.g. 36474.00011574074)
+    try:
+        num = float(clean)
+        if 1000 < num < 100000:
+            d = datetime(1899, 12, 30) + timedelta(days=num)
+            dd_s = str(d.day).zfill(2)
+            mm_s = str(d.month).zfill(2)
+            yyyy_s = str(d.year)
+            return (f"{dd_s}-{mm_s}-{yyyy_s}", f"{dd_s}{mm_s}{yyyy_s}")
+    except Exception:
+        pass
     
-    # Check if only 8 digits
+    # 4. 8 digits
     digits = re.sub(r"\D", "", clean)
     if len(digits) == 8:
-        # If starts with 19 or 20 (YYYYMMDD), convert to DDMMYYYY
         if digits.startswith(("19", "20")):
-            yyyy = digits[:4]
-            mm = digits[4:6]
-            dd = digits[6:8]
-            return f"{dd}{mm}{yyyy}"
-        return digits
+            yyyy, mm, dd = digits[:4], digits[4:6], digits[6:8]
+            return (f"{dd}-{mm}-{yyyy}", f"{dd}{mm}{yyyy}")
+        dd, mm, yyyy = digits[:2], digits[2:4], digits[4:8]
+        return (f"{dd}-{mm}-{yyyy}", digits)
     
-    return digits if digits else "20060101"
+    return (clean, digits[:8] if len(digits) >= 8 else "01012006")
+
+def format_dob_password(birth_date: str) -> str:
+    _, pwd = normalize_birth_date_and_password(birth_date)
+    return pwd
 
 def format_student_id(batch: str, roll_no: str) -> str:
     """
-    Generates student ID based on Batch (e.g. 2026-2027 -> 2627) and Roll Number.
-    E.g. Roll No '01' -> '262701'. If roll_no is already like '262701', keeps it.
+    Generates cadet user ID based on Batch/Year (e.g. 2026-2027 -> 2627) and Roll Number.
+    E.g. Roll No '1' -> '262701'.
     """
-    clean_roll = str(roll_no).strip()
-    if len(clean_roll) >= 5 and clean_roll.isdigit():
-        return clean_roll
-    
-    clean_batch = batch or "Batch 2026-2027"
+    clean_roll = str(roll_no or "").strip()
+    clean_batch = str(batch or "Batch 2026-2027").strip()
     digits = re.sub(r"\D", "", clean_batch)
     prefix = "2627"
     if len(digits) >= 8:
@@ -68,24 +89,27 @@ def format_student_id(batch: str, roll_no: str) -> str:
     elif len(digits) == 4:
         prefix = digits
     
-    # Pad roll no to at least 2 digits (e.g. '1' -> '01')
-    roll_padded = clean_roll.zfill(2) if len(clean_roll) < 2 else clean_roll
+    roll_padded = clean_roll.zfill(2) if len(clean_roll) < 2 and clean_roll.isdigit() else clean_roll
     return f"{prefix}{roll_padded}"
 
 def doc_to_student_out(doc: Dict[str, Any]) -> StudentOut:
     return StudentOut(
         id=str(doc.get("id") or doc.get("_id")),
-        roll_no=doc["roll_no"],
-        name=doc["name"],
-        father_name=doc["father_name"],
-        course=doc["course"],
-        batch=doc["batch"],
-        passing_year=str(doc["passing_year"]),
-        grade=doc["grade"],
-        percentage=str(doc["percentage"]),
+        roll_no=doc.get("roll_no") or str(doc.get("id") or doc.get("_id")),
+        enrollment_no=doc.get("enrollment_no") or str(doc.get("id") or doc.get("_id")),
+        name=doc.get("name", ""),
+        father_name=doc.get("father_name", ""),
+        course=doc.get("course", "Diploma In Fire Safety"),
+        batch=doc.get("batch", "Batch 2026-2027"),
+        passing_year=str(doc.get("passing_year", "2027")),
+        grade=doc.get("grade", "Active Cadet"),
+        percentage=str(doc.get("percentage", "N/A")),
         verification_status=doc.get("verification_status", "Verified"),
-        issue_date=doc["issue_date"],
-        center_location=doc["center_location"],
+        issue_date=doc.get("issue_date", "Ongoing"),
+        center_location=doc.get("center_location") or doc.get("center_name") or "CFSI Vadodara Main Campus, Gujarat",
+        center_name=doc.get("center_name") or doc.get("center_location") or "CFSI Vadodara Main Campus, Gujarat",
+        mode=doc.get("mode", "REGULAR"),
+        gender=doc.get("gender", "MALE"),
         photo_url=doc.get("photo_url"),
         mother_name=doc.get("mother_name"),
         birth_date=doc.get("birth_date"),
@@ -142,7 +166,8 @@ async def get_my_profile(
     doc = await db.students.find_one({
         "$or": [
             {"id": {"$regex": regex_pattern, "$options": "i"}},
-            {"roll_no": {"$regex": regex_pattern, "$options": "i"}}
+            {"roll_no": {"$regex": regex_pattern, "$options": "i"}},
+            {"enrollment_no": {"$regex": regex_pattern, "$options": "i"}}
         ]
     })
     if not doc:
@@ -150,20 +175,24 @@ async def get_my_profile(
         doc = {
             "_id": clean_id,
             "id": clean_id,
+            "enrollment_no": clean_id,
             "roll_no": clean_id[-2:] if len(clean_id) >= 2 else clean_id,
             "name": current_user.get("full_name") or current_user.get("username"),
             "father_name": "",
-            "course": "Fire Safety Program",
-            "batch": "Batch 2026-2027",
+            "course": current_user.get("course") or "DIPLOMA IN FIRE AND SAFETY MANAGEMENT",
+            "batch": current_user.get("batch") or "Batch 2026-2027",
             "passing_year": "2027",
             "grade": "Active Cadet",
             "percentage": "N/A",
             "verification_status": "Verified",
             "issue_date": "Ongoing",
-            "center_location": "CFSI Vadodara Main Campus, Gujarat",
+            "center_location": current_user.get("center") or "CENTRAL FIRE AND SAFETY INSTITUTE",
+            "center_name": current_user.get("center") or "CENTRAL FIRE AND SAFETY INSTITUTE",
+            "mode": "REGULAR",
+            "gender": current_user.get("gender") or "MALE",
             "photo_url": current_user.get("photo_url"),
-            "nationality": "Indian",
-            "state": "Gujarat"
+            "nationality": "INDIAN",
+            "state": "GUJARAT"
         }
         await db.students.insert_one(doc)
     return doc_to_student_out(doc)
@@ -184,7 +213,8 @@ async def update_my_profile(
     doc = await db.students.find_one({
         "$or": [
             {"id": {"$regex": regex_pattern, "$options": "i"}},
-            {"roll_no": {"$regex": regex_pattern, "$options": "i"}}
+            {"roll_no": {"$regex": regex_pattern, "$options": "i"}},
+            {"enrollment_no": {"$regex": regex_pattern, "$options": "i"}}
         ]
     })
     if not doc:
@@ -197,31 +227,41 @@ async def update_my_profile(
     update_fields = {
         "name": payload.name if payload.name is not None else doc.get("name"),
         "father_name": payload.father_name if payload.father_name is not None else doc.get("father_name"),
-        "mother_name": payload.mother_name,
-        "birth_date": payload.birth_date,
-        "present_address": payload.present_address,
+        "mother_name": payload.mother_name if payload.mother_name is not None else doc.get("mother_name"),
+        "birth_date": payload.birth_date if payload.birth_date is not None else doc.get("birth_date"),
+        "gender": payload.gender.strip().upper() if payload.gender else doc.get("gender", "MALE"),
+        "present_address": payload.present_address if payload.present_address is not None else doc.get("present_address"),
         "student_phone": payload.student_phone.strip(),
         "father_phone": payload.father_phone.strip() if payload.father_phone else None,
         "mother_phone": payload.mother_phone.strip() if payload.mother_phone else None,
-        "category": payload.category,
+        "category": payload.category if payload.category is not None else doc.get("category"),
         "aadhar_card": payload.aadhar_card.strip() if payload.aadhar_card else None,
         "email": payload.email.strip() if payload.email else None,
-        "nationality": payload.nationality or "Indian",
-        "state": payload.state or "Gujarat",
+        "nationality": payload.nationality or doc.get("nationality", "INDIAN"),
+        "state": payload.state or doc.get("state", "GUJARAT"),
     }
+    if payload.center_name or payload.center_location:
+        c_name = payload.center_name or payload.center_location
+        update_fields["center_location"] = c_name
+        update_fields["center_name"] = c_name
+    if payload.mode:
+        update_fields["mode"] = payload.mode.strip().upper()
     if payload.photo_url is not None:
         update_fields["photo_url"] = payload.photo_url
 
     await db.students.update_one({"_id": doc["_id"]}, {"$set": update_fields})
     
-    # Sync name and photo with user account if changed
-    user_updates = {}
-    if payload.name:
-        user_updates["full_name"] = payload.name
+    # Sync name, photo, gender, phone, email with user account if changed
+    user_updates = {
+        "full_name": update_fields["name"],
+        "phone": update_fields["student_phone"],
+        "gender": update_fields["gender"],
+    }
+    if update_fields.get("email"):
+        user_updates["email"] = update_fields["email"]
     if payload.photo_url is not None:
         user_updates["photo_url"] = payload.photo_url
-    if user_updates:
-        await db.users.update_one({"_id": current_user["_id"]}, {"$set": user_updates})
+    await db.users.update_one({"_id": current_user["_id"]}, {"$set": user_updates})
 
     updated_doc = await db.students.find_one({"_id": doc["_id"]})
     return doc_to_student_out(updated_doc)
@@ -244,30 +284,44 @@ async def bulk_import_students(
     updated_count = 0
     summary_list = []
 
-    for item in payload.students:
+    for idx, item in enumerate(payload.students):
         batch_val = item.batch or payload.default_batch or "Batch 2026-2027"
-        student_id = format_student_id(batch_val, item.roll_no)
-        dob_password = format_dob_password(item.birth_date)
-        clean_roll = str(item.roll_no).strip()
-        if len(clean_roll) < 2 and clean_roll.isdigit():
-            clean_roll = clean_roll.zfill(2)
+        raw_enrollment = (item.enrollment_no or "").strip()
+        clean_roll = str(item.roll_no or "").strip()
+        if not clean_roll:
+            clean_roll = str(idx + 1)
+
+        # Automatic Cadet User ID assigned as per roll (e.g. 262701)
+        cadet_user_id = (item.student_id or "").strip()
+        if not cadet_user_id or (raw_enrollment and cadet_user_id == raw_enrollment) or cadet_user_id.startswith("2026"):
+            cadet_user_id = format_student_id(batch_val, clean_roll)
+
+        student_id = cadet_user_id
+        clean_dob, dob_password = normalize_birth_date_and_password(item.birth_date)
+
+        center_val = item.center_name or item.center_location or "CENTRAL FIRE AND SAFETY INSTITUTE"
 
         student_doc = {
             "_id": student_id,
             "id": student_id,
+            "student_id": student_id,
+            "enrollment_no": student_id,
             "roll_no": clean_roll,
             "name": item.name.strip(),
             "father_name": item.father_name.strip() if item.father_name else "",
             "mother_name": item.mother_name.strip() if item.mother_name else "",
-            "birth_date": item.birth_date.strip(),
-            "course": item.course or "Diploma In Fire Safety",
+            "birth_date": clean_dob,
+            "gender": (item.gender or "MALE").strip().upper(),
+            "course": item.course or "DIPLOMA IN FIRE AND SAFETY MANAGEMENT",
             "batch": batch_val,
             "passing_year": item.passing_year or "2027",
             "grade": item.grade or "Active Cadet",
             "percentage": item.percentage or "N/A",
             "verification_status": item.verification_status or "Verified",
             "issue_date": item.issue_date or "Ongoing",
-            "center_location": item.center_location or "CFSI Vadodara Main Campus, Gujarat",
+            "center_location": center_val,
+            "center_name": center_val,
+            "mode": (item.mode or "REGULAR").strip().upper(),
             "photo_url": item.photo_url or "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=200&q=80",
             "present_address": item.present_address or "",
             "student_phone": item.student_phone or "",
@@ -275,17 +329,20 @@ async def bulk_import_students(
             "mother_phone": item.mother_phone or "",
             "category": item.category or "General",
             "aadhar_card": item.aadhar_card or "",
-            "email": item.email or f"{student_id}@cfsi.edu.in",
-            "nationality": item.nationality or "Indian",
-            "state": item.state or "Gujarat",
+            "email": item.email or f"{student_id.lower()}@cfsi.edu.in",
+            "nationality": item.nationality or "INDIAN",
+            "state": item.state or "GUJARAT",
         }
 
-        # Check existing student
-        existing_student = await db.students.find_one({"id": student_id})
+        # Check existing student by cadet_user_id or enrollment_no
+        search_filter = [{"id": student_id}, {"_id": student_id}, {"student_id": student_id}]
+        if raw_enrollment:
+            search_filter.append({"enrollment_no": raw_enrollment})
+        existing_student = await db.students.find_one({"$or": search_filter})
         status_label = "Updated" if existing_student else "Created"
         if existing_student:
             updated_count += 1
-            await db.students.update_one({"id": student_id}, {"$set": student_doc})
+            await db.students.update_one({"_id": existing_student["_id"]}, {"$set": student_doc})
         else:
             created_count += 1
             await db.students.insert_one(student_doc)
@@ -293,20 +350,31 @@ async def bulk_import_students(
         # Hash birthdate password with bcrypt
         pwd_hash = hash_password(dob_password)
 
-        # Upsert corresponding user login account with Student ID as username
+        # Upsert corresponding user login account with Cadet User ID (e.g. 262701) as username
         user_account = {
             "username": student_id,
             "student_id": student_id,
+            "enrollment_no": student_id,
             "role": "student",
             "full_name": item.name.strip(),
             "photo_url": student_doc["photo_url"],
+            "gender": student_doc["gender"],
+            "course": student_doc["course"],
+            "batch": student_doc["batch"],
+            "center": student_doc["center_location"],
+            "phone": student_doc["student_phone"],
+            "email": student_doc["email"],
             "password_hash": pwd_hash,
             "is_active": True,
             "token_version": 0,
         }
 
+        user_search_filter = [{"username": student_id}, {"student_id": student_id}]
+        if raw_enrollment:
+            user_search_filter.append({"enrollment_no": raw_enrollment})
+
         await db.users.update_one(
-            {"username": student_id},
+            {"$or": user_search_filter},
             {
                 "$set": user_account,
                 "$setOnInsert": {"_id": f"user-student-{student_id}"}
@@ -317,8 +385,9 @@ async def bulk_import_students(
         summary_list.append(BulkImportStudentSummary(
             student_id=student_id,
             roll_no=clean_roll,
+            enrollment_no=student_id,
             name=item.name.strip(),
-            birth_date=item.birth_date.strip(),
+            birth_date=clean_dob,
             generated_password=dob_password,
             status=status_label
         ))
@@ -343,13 +412,15 @@ async def get_student(
     if current_user["role"] == "student":
         user_sid = (current_user.get("student_id") or "").lower()
         user_uname = (current_user.get("username") or "").lower()
-        if clean_id.lower() not in (user_sid, user_uname):
+        user_enr = (current_user.get("enrollment_no") or "").lower()
+        if clean_id.lower() not in (user_sid, user_uname, user_enr):
             raise HTTPException(status_code=403, detail="You can only access your own cadet record")
     regex_pattern = f"^{re.escape(clean_id)}$"
     doc = await db.students.find_one({
         "$or": [
             {"id": {"$regex": regex_pattern, "$options": "i"}},
-            {"roll_no": {"$regex": regex_pattern, "$options": "i"}}
+            {"roll_no": {"$regex": regex_pattern, "$options": "i"}},
+            {"enrollment_no": {"$regex": regex_pattern, "$options": "i"}}
         ]
     })
     if not doc:
@@ -396,3 +467,56 @@ async def create_student(
     }
     await db.students.insert_one(doc)
     return doc_to_student_out(doc)
+
+@router.delete("/{student_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_student(
+    student_id: str,
+    db: AsyncIOMotorDatabase = Depends(get_database),
+    current_user: Dict[str, Any] = Depends(require_admin)
+):
+    """
+    Permanently delete a student cadet record and their user login account from MongoDB (Admin only).
+    """
+    clean_id = student_id.strip()
+    student = await db.students.find_one({
+        "$or": [
+            {"id": clean_id},
+            {"roll_no": clean_id},
+            {"_id": clean_id}
+        ]
+    })
+    
+    sid = student.get("id") if student else clean_id
+
+    # 1. Permanently delete student document from students collection
+    res = await db.students.delete_many({
+        "$or": [
+            {"id": sid},
+            {"_id": sid},
+            {"roll_no": sid},
+            {"id": clean_id},
+            {"_id": clean_id}
+        ]
+    })
+
+    # 2. Permanently delete linked user account from users collection
+    await db.users.delete_many({
+        "$or": [
+            {"student_id": sid},
+            {"username": sid},
+            {"_id": f"user-student-{sid}"},
+            {"student_id": clean_id},
+            {"username": clean_id}
+        ]
+    })
+
+    # 3. Permanently delete attendance records for this student
+    await db.attendance.delete_many({
+        "$or": [
+            {"student_id": sid},
+            {"student_id": clean_id}
+        ]
+    })
+
+    if res.deleted_count == 0 and not student:
+        raise HTTPException(status_code=404, detail="Student record not found in database")

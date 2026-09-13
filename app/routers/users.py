@@ -16,7 +16,14 @@ async def find(user_id, db):
     keys = [user_id]
     if ObjectId.is_valid(user_id):
         keys.append(ObjectId(user_id))
-    user = await db.users.find_one({"_id": {"$in": keys}})
+    user = await db.users.find_one({
+        "$or": [
+            {"_id": {"$in": keys}},
+            {"username": user_id},
+            {"id": user_id},
+            {"student_id": user_id}
+        ]
+    })
     if not user:
         raise HTTPException(404, "User not found")
     return user
@@ -67,6 +74,26 @@ async def update_user(user_id: str, payload: UserUpdate, db=Depends(get_database
 @router.delete("/{user_id}", status_code=204)
 async def delete_user(user_id: str, db=Depends(get_database), actor=Depends(require_admin)):
     user = await find(user_id, db)
-    if user["_id"] == actor["_id"]:
+    if str(user["_id"]) == str(actor["_id"]) or user.get("username") == actor.get("username"):
         raise HTTPException(409, "You cannot delete your own admin account")
-    await db.users.delete_one({"_id": user["_id"]})
+    
+    # 1. Permanently remove from users collection
+    await db.users.delete_many({
+        "$or": [
+            {"_id": user["_id"]},
+            {"username": user.get("username")}
+        ]
+    })
+
+    # 2. If student user, also permanently remove associated student and attendance records
+    sid = user.get("student_id") or (user.get("username") if user.get("role") == "student" else None)
+    if sid:
+        await db.students.delete_many({
+            "$or": [
+                {"id": sid},
+                {"roll_no": sid},
+                {"_id": sid},
+                {"username": sid}
+            ]
+        })
+        await db.attendance.delete_many({"student_id": sid})

@@ -41,6 +41,22 @@ async def setup_indexes():
     """Ensures necessary MongoDB indexes exist."""
     db = get_database()
     try:
+        # Drop obsolete legacy indexes if present
+        try:
+            student_indexes = await db.students.index_information()
+            if "certificate_number_1" in student_indexes:
+                await db.students.drop_index("certificate_number_1")
+                logger.info("Dropped obsolete index 'certificate_number_1' from students collection.")
+        except Exception as drop_e:
+            logger.warning(f"Could not inspect or drop obsolete student index: {drop_e}")
+
+        try:
+            user_indexes = await db.users.index_information()
+            if "certificate_number_1" in user_indexes:
+                await db.users.drop_index("certificate_number_1")
+        except Exception as drop_e:
+            pass
+
         await db.users.create_index("username", unique=True)
         await db.students.create_index("id", unique=True)
         await db.students.create_index("roll_no")

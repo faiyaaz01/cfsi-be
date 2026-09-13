@@ -25,14 +25,16 @@ async def login(login_data: LoginRequest, db: AsyncIOMotorDatabase = Depends(get
         user = await db.users.find_one({
             "$or": [
                 {"username": {"$regex": f"^{re.escape(clean_username)}$", "$options": "i"}},
-                {"student_id": {"$regex": f"^{re.escape(clean_username)}$", "$options": "i"}}
+                {"student_id": {"$regex": f"^{re.escape(clean_username)}$", "$options": "i"}},
+                {"enrollment_no": {"$regex": f"^{re.escape(clean_username)}$", "$options": "i"}}
             ]
         })
     if not user:
         student_doc = await db.students.find_one({
             "$or": [
                 {"id": {"$regex": f"^{re.escape(clean_username)}$", "$options": "i"}},
-                {"roll_no": {"$regex": f"^{re.escape(clean_username)}$", "$options": "i"}}
+                {"roll_no": {"$regex": f"^{re.escape(clean_username)}$", "$options": "i"}},
+                {"enrollment_no": {"$regex": f"^{re.escape(clean_username)}$", "$options": "i"}}
             ]
         })
         if student_doc:
@@ -40,7 +42,9 @@ async def login(login_data: LoginRequest, db: AsyncIOMotorDatabase = Depends(get
                 "$or": [
                     {"student_id": student_doc.get("id")},
                     {"student_id": student_doc.get("roll_no")},
-                    {"username": student_doc.get("id", "")}
+                    {"student_id": student_doc.get("enrollment_no")},
+                    {"username": student_doc.get("id", "")},
+                    {"username": student_doc.get("enrollment_no", "")}
                 ]
             })
     
