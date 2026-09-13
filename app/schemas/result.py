@@ -9,8 +9,8 @@ class ResultBase(BaseModel):
     marks_obtained: float = Field(..., alias="marksObtained")
     max_marks: float = Field(100.0, alias="maxMarks")
     grade: str
-    exam_date: str = Field(..., alias="examDate")
-    semester_or_term: str = Field(..., alias="semesterOrTerm")
+    exam_date: Optional[str] = Field(None, alias="examDate")
+    semester_or_term: Optional[str] = Field(None, alias="semesterOrTerm")
     remarks: Optional[str] = None
     created_at: Optional[str] = Field(None, alias="createdAt")
 

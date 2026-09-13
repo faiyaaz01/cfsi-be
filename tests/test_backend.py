@@ -37,21 +37,50 @@ async def test_backend():
     assert verify_password("Password@1", admin["password_hash"]), "Admin password verification failed!"
     print(f"[OK] Admin user found: {admin['username']}, Role: {admin['role']}, Hash: {admin['password_hash'][:15]}...")
 
-    # Check 3-slot muster records
-    muster_count = await db.attendance.count_documents({})
-    assert muster_count > 0, "No attendance records found!"
-    slots = await db.attendance.find({"certificate_number": "CFSI-2023-0101"}).to_list(10)
-    print(f"[OK] Found {muster_count} attendance records. Cadet has {len(slots)} slots recorded.")
+    # Check that legacy demo mock accounts and demo seeds are purged
+    demo_count = await db.attendance.count_documents({"id": {"$regex": "^att-seed-"}})
+    assert demo_count == 0, f"Expected 0 demo attendance seeds, found {demo_count}"
+    print(f"[OK] Clean attendance registry: 0 mock demo seeds present.")
 
     # Check students verification registry
     student = await db.students.find_one({"certificate_number": "CFSI-2023-0101"})
     assert student is not None, "Student verification record not found!"
     print(f"[OK] Student record verified: {student['name']} ({student['course']})")
 
-    # Check results
-    res_count = await db.results.count_documents({"certificate_number": "CFSI-2023-0101"})
-    assert res_count > 0, "No results found for cadet!"
-    print(f"[OK] Cadet has {res_count} examination subject results.")
+    # Test dynamic record creation and query
+    test_att_id = "att-test-verification"
+    await db.attendance.delete_many({"id": test_att_id})
+    await db.attendance.insert_one({
+        "id": test_att_id,
+        "certificate_number": "CFSI-2023-0101",
+        "date": "2026-09-13",
+        "slot": "Slot 1",
+        "course": "Diploma In Fire Safety",
+        "status": "Present",
+        "topic_or_module": "Test Operational Drill",
+        "marked_by": "Chief Instructor Dave"
+    })
+    saved_att = await db.attendance.find_one({"id": test_att_id})
+    assert saved_att is not None and saved_att["status"] == "Present"
+    print(f"[OK] Dynamic drill muster record successfully created and verified in MongoDB.")
+    await db.attendance.delete_one({"id": test_att_id})
+
+    # Test dynamic exam score creation and query
+    test_res_id = "res-test-verification"
+    await db.results.delete_many({"id": test_res_id})
+    await db.results.insert_one({
+        "id": test_res_id,
+        "certificate_number": "CFSI-2023-0101",
+        "course": "Diploma In Fire Safety",
+        "subject": "Fire Prevention & Codes",
+        "marks_obtained": 88,
+        "max_marks": 100,
+        "grade": "Distinction (A+)"
+    })
+    saved_res = await db.results.find_one({"id": test_res_id})
+    assert saved_res is not None and saved_res["marks_obtained"] == 88
+    print(f"[OK] Dynamic examination score successfully created and verified in MongoDB.")
+    await db.results.delete_one({"id": test_res_id})
 
     await close_mongo_connection()
     print("\n[SUCCESS] ALL BACKEND CHECKS PASSED PERFECTLY!\n")

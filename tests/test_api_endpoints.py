@@ -38,11 +38,23 @@ def test_api():
         print(f"[OK] Verified Cadet: {verify_json['student']['name']}, Status: {verify_json['student']['verificationStatus']}")
 
         print("\n--- 5. Testing Admin Results Management ---")
+        new_result = {
+            "certificateNumber": "CFSI-2023-0101",
+            "course": "Diploma In Fire Safety",
+            "subject": "Fire Fighting Hydraulics & Pump Operations",
+            "marksObtained": 85,
+            "maxMarks": 100,
+            "grade": "Distinction (A+)",
+            "semesterOrTerm": "Term Final Examination",
+            "remarks": "Passed with distinction in practical calculations"
+        }
+        create_res = client.post("/api/results", json=new_result, headers=headers_admin)
+        assert create_res.status_code in (200, 201), f"Create result failed: {create_res.text}"
         res_res = client.get("/api/results", headers=headers_admin)
         assert res_res.status_code == 200
         results_list = res_res.json()
         assert len(results_list) > 0
-        print(f"[OK] Admin retrieved {len(results_list)} examination records.")
+        print(f"[OK] Admin created and retrieved {len(results_list)} examination records.")
 
         print("\n--- 6. Testing 3-Slot Daily Muster Attendance Bulk Save ---")
         muster_records = [
