@@ -5,7 +5,6 @@ class Student(Base):
     __tablename__ = "students"
 
     id = Column(String(50), primary_key=True, index=True)
-    certificate_number = Column(String(100), unique=True, index=True, nullable=False)
     roll_no = Column(String(100), nullable=False)
     name = Column(String(200), nullable=False)
     father_name = Column(String(200), nullable=False)

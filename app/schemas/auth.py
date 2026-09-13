@@ -13,8 +13,9 @@ class UserOut(BaseModel):
     id: Union[str, int]
     username: str
     role: Role
-    certificate_number: Optional[str] = None
+    student_id: Optional[str] = None
     full_name: Optional[str] = None
+    photo_url: Optional[str] = None
     is_active: bool = True
 
     class Config:
@@ -29,7 +30,7 @@ class Token(BaseModel):
 class TokenPayload(BaseModel):
     sub: Optional[str] = None
     role: Optional[str] = None
-    certificate_number: Optional[str] = None
+    student_id: Optional[str] = None
     user_id: Optional[str] = None
     exp: Optional[int] = None
 
@@ -39,7 +40,7 @@ class UserCreate(BaseModel):
     password: str = Field(min_length=8, max_length=72)
     role: Role
     full_name: str = Field(min_length=1, max_length=200)
-    certificate_number: Optional[str] = None
+    student_id: Optional[str] = None
     is_active: bool = True
 
     @field_validator("password")
@@ -53,7 +54,7 @@ class UserUpdate(BaseModel):
     password: Optional[str] = Field(default=None, min_length=8, max_length=72)
     role: Optional[Role] = None
     full_name: Optional[str] = Field(default=None, min_length=1, max_length=200)
-    certificate_number: Optional[str] = None
+    student_id: Optional[str] = None
     is_active: Optional[bool] = None
 
     @field_validator("password")

@@ -42,17 +42,25 @@ async def test_backend():
     assert demo_count == 0, f"Expected 0 demo attendance seeds, found {demo_count}"
     print(f"[OK] Clean attendance registry: 0 mock demo seeds present.")
 
-    # Check students verification registry
-    student = await db.students.find_one({"certificate_number": "CFSI-2023-0101"})
-    assert student is not None, "Student verification record not found!"
-    print(f"[OK] Student record verified: {student['name']} ({student['course']})")
+    # Check students verification registry (Batch 2026-2027)
+    student = await db.students.find_one({"id": "262701"})
+    assert student is not None, "Student registry record not found!"
+    assert student["id"] == "262701", f"Expected student ID 262701, got {student['id']}"
+    print(f"[OK] Student record verified: {student['name']} ({student['course']}), Student ID: {student['id']}")
+
+    # Check student login user exists with username = student ID (262701)
+    student_user = await db.users.find_one({"username": "262701"})
+    assert student_user is not None, "Student user account '262701' not found!"
+    assert verify_password("Student@1", student_user["password_hash"]), "Student password verification failed!"
+    print(f"[OK] Student account verified: {student_user['username']} (Student ID: {student_user['student_id']})")
 
     # Test dynamic record creation and query
     test_att_id = "att-test-verification"
     await db.attendance.delete_many({"id": test_att_id})
     await db.attendance.insert_one({
         "id": test_att_id,
-        "certificate_number": "CFSI-2023-0101",
+        "student_id": "262701",
+        "roll_no": "01",
         "date": "2026-09-13",
         "slot": "Slot 1",
         "course": "Diploma In Fire Safety",
@@ -64,23 +72,6 @@ async def test_backend():
     assert saved_att is not None and saved_att["status"] == "Present"
     print(f"[OK] Dynamic drill muster record successfully created and verified in MongoDB.")
     await db.attendance.delete_one({"id": test_att_id})
-
-    # Test dynamic exam score creation and query
-    test_res_id = "res-test-verification"
-    await db.results.delete_many({"id": test_res_id})
-    await db.results.insert_one({
-        "id": test_res_id,
-        "certificate_number": "CFSI-2023-0101",
-        "course": "Diploma In Fire Safety",
-        "subject": "Fire Prevention & Codes",
-        "marks_obtained": 88,
-        "max_marks": 100,
-        "grade": "Distinction (A+)"
-    })
-    saved_res = await db.results.find_one({"id": test_res_id})
-    assert saved_res is not None and saved_res["marks_obtained"] == 88
-    print(f"[OK] Dynamic examination score successfully created and verified in MongoDB.")
-    await db.results.delete_one({"id": test_res_id})
 
     await close_mongo_connection()
     print("\n[SUCCESS] ALL BACKEND CHECKS PASSED PERFECTLY!\n")

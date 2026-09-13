@@ -3,7 +3,8 @@ from pydantic import BaseModel, Field
 
 class AttendanceBase(BaseModel):
     id: Optional[str] = None
-    certificate_number: str = Field(..., alias="certificateNumber")
+    student_id: str = Field(..., alias="studentId")
+    roll_no: Optional[str] = Field(None, alias="rollNo")
     date: str
     slot: str  # 'Slot 1' | 'Slot 2' | 'Slot 3'
     course: str
@@ -12,6 +13,9 @@ class AttendanceBase(BaseModel):
     remarks: Optional[str] = None
     marked_by: Optional[str] = Field(None, alias="markedBy")
     created_at: Optional[str] = Field(None, alias="createdAt")
+    uploaded_at: Optional[str] = Field(None, alias="uploadedAt")
+    is_locked: bool = Field(False, alias="isLocked")
+    can_edit_until: Optional[str] = Field(None, alias="canEditUntil")
 
     class Config:
         populate_by_name = True

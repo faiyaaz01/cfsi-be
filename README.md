@@ -61,7 +61,7 @@ on restart. Configure `CORS_ORIGINS` as a JSON array for your deployed frontend.
 
 Open `/login`, choose Admin, and use the bootstrap credentials. Open **Manage
 users** (`/users`) to create, list, edit, deactivate, or delete accounts. A Student
-account requires an existing student certificate number. Usernames are immutable.
+account requires an existing student ID. Usernames are immutable.
 Passwords are hashed and never returned. Account updates invalidate existing
 sessions; logout invalidates all sessions for that user. Admins cannot delete,
 deactivate, or demote themselves. No client-side demo login is accepted.
@@ -69,8 +69,8 @@ deactivate, or demote themselves. No client-side demo login is accepted.
 | Role | Panel | Access |
 | --- | --- | --- |
 | Admin | `/dashboard`, `/users` | Institute dashboard and user CRUD |
-| Teacher | `/teacher/dashboard` | Read and maintain attendance/results, student directory |
-| Student | `/student/dashboard` | Own attendance, results and certificate only |
+| Teacher | `/teacher/dashboard` | Read and maintain attendance, student directory |
+| Student | `/student/dashboard` | Own attendance and cadet profile only |
 
 Public website pages remain accessible without login. Protected routes redirect
 to `/login`; authenticated visitors to `/login` return to their role's panel.

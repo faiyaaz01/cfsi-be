@@ -13,7 +13,7 @@ class AuthTests(unittest.IsolatedAsyncioTestCase):
         self.db = AsyncMongoMockClient().auth_tests
         await self.db.users.create_index('username', unique=True)
         await self.db.users.insert_one({'_id':'admin-id','username':'administrator','password_hash':hash_password('GoodPassword123'),'role':'admin','full_name':'Admin','is_active':True})
-        await self.db.students.insert_one({'certificate_number':'CERT-1'})
+        await self.db.students.insert_one({'id':'262701','roll_no':'01','name':'Test Student','father_name':'F','course':'Fire Safety','batch':'Batch 2026-2027','passing_year':'2027','grade':'A','percentage':'80%','verification_status':'Verified','issue_date':'1 Jan 2027','center_location':'Vadodara'})
         app.dependency_overrides[get_database] = lambda: self.db
         self.client = AsyncClient(transport=ASGITransport(app=app), base_url='http://test')
         self.admin = await self.login('administrator')
@@ -28,7 +28,7 @@ class AuthTests(unittest.IsolatedAsyncioTestCase):
         return {'Authorization':'Bearer '+res.json()['access_token']}
 
     async def create(self, role):
-        res = await self.client.post('/api/users', headers=self.admin, json={'username':role+'user','password':'GoodPassword123','role':role,'full_name':role,'certificate_number':'CERT-1' if role=='student' else None})
+        res = await self.client.post('/api/users', headers=self.admin, json={'username':role+'user','password':'GoodPassword123','role':role,'full_name':role,'student_id':'262701' if role=='student' else None})
         self.assertEqual(res.status_code,201,res.text)
         self.assertNotIn('password_hash',res.json())
         return res.json()
@@ -49,7 +49,7 @@ class AuthTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await self.client.get('/api/auth/me',headers=headers)).status_code,401)
 
     async def test_invalid_tokens_logout_and_self_protection(self):
-        for path in ['/api/users','/api/students','/api/attendance','/api/results']:
+        for path in ['/api/users','/api/students','/api/attendance']:
             self.assertEqual((await self.client.get(path)).status_code,401)
         expired = create_access_token({'sub':'administrator','user_id':'admin-id'},timedelta(seconds=-1))
         for token in ['invalid', expired]:
@@ -62,12 +62,12 @@ class AuthTests(unittest.IsolatedAsyncioTestCase):
     async def test_teacher_write_student_isolation_and_validation(self):
         await self.create('teacher'); await self.create('student')
         teacher = await self.login('teacheruser'); student = await self.login('studentuser')
-        record = {'certificate_number':'CERT-2','date':'2026-09-13','slot':'Slot 1','course':'Fire Safety','status':'Present'}
+        record = {'studentId':'262702','rollNo':'02','date':'2026-09-13','slot':'Slot 1','course':'Fire Safety','status':'Present'}
         res = await self.client.post('/api/attendance',headers=teacher,json=record)
         self.assertEqual(res.status_code,201,res.text)
         self.assertEqual((await self.client.post('/api/attendance',headers=student,json=record)).status_code,403)
-        self.assertEqual((await self.client.get('/api/attendance?certificate_number=CERT-2',headers=student)).json(),[])
-        self.assertEqual((await self.client.get('/api/students/CERT-2',headers=student)).status_code,403)
+        self.assertEqual((await self.client.get('/api/attendance?student_id=262702',headers=student)).json(),[])
+        self.assertEqual((await self.client.get('/api/students/262702',headers=student)).status_code,403)
         duplicate = await self.client.post('/api/users',headers=self.admin,json={'username':'teacheruser','password':'GoodPassword123','role':'teacher','full_name':'Teacher'})
         self.assertEqual(duplicate.status_code,409)
         self.assertEqual((await self.client.patch('/api/users/admin-id',headers=self.admin,json={'role':'superadmin'})).status_code,422)

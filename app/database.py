@@ -42,9 +42,9 @@ async def setup_indexes():
     db = get_database()
     try:
         await db.users.create_index("username", unique=True)
-        await db.students.create_index("certificate_number", unique=True)
-        await db.attendance.create_index([("certificate_number", 1), ("date", 1), ("slot", 1)])
-        await db.results.create_index("certificate_number")
+        await db.students.create_index("id", unique=True)
+        await db.students.create_index("roll_no")
+        await db.attendance.create_index([("student_id", 1), ("date", 1), ("slot", 1)])
         await db.news_posts.create_index("date")
     except Exception as e:
         logger.warning(f"Index creation notice: {e}")

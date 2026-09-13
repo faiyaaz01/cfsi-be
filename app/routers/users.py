@@ -23,11 +23,11 @@ async def find(user_id, db):
 
 async def validate_link(data, db):
     if data["role"] == "student":
-        cert = data.get("certificate_number")
-        if not cert or not await db.students.find_one({"certificate_number": cert}):
-            raise HTTPException(422, "Students require an existing certificate number")
+        sid = data.get("student_id")
+        if not sid or not await db.students.find_one({"$or": [{"id": sid}, {"roll_no": sid}]}):
+            raise HTTPException(422, "Students require an existing student ID")
     else:
-        data["certificate_number"] = None
+        data["student_id"] = None
 
 @router.get("", response_model=list[UserOut])
 async def list_users(db=Depends(get_database)):
@@ -52,13 +52,13 @@ async def create_user(payload: UserCreate, db=Depends(get_database)):
 async def update_user(user_id: str, payload: UserUpdate, db=Depends(get_database), actor=Depends(require_admin)):
     user = await find(user_id, db)
     changes = payload.model_dump(exclude_unset=True)
-    if any(changes.get(k) is None for k in changes if k != "certificate_number"):
+    if any(changes.get(k) is None for k in changes if k != "student_id"):
         raise HTTPException(422, "Fields cannot be null")
     if user["_id"] == actor["_id"] and (changes.get("role", "admin") != "admin" or changes.get("is_active") is False):
         raise HTTPException(409, "You cannot demote or deactivate your own admin account")
     merged = {**user, **changes}
     await validate_link(merged, db)
-    changes["certificate_number"] = merged.get("certificate_number")
+    changes["student_id"] = merged.get("student_id")
     if "password" in changes:
         changes["password_hash"] = hash_password(changes.pop("password"))
     await db.users.update_one({"_id": user["_id"]}, {"$set": changes, "$inc": {"token_version": 1}})

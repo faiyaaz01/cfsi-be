@@ -8,7 +8,6 @@ from app.routers import (
     auth_router,
     students_router,
     attendance_router,
-    results_router,
     news_router
 )
 
@@ -42,7 +41,6 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(students_router)
 app.include_router(attendance_router)
-app.include_router(results_router)
 app.include_router(news_router)
 
 @app.get("/")
