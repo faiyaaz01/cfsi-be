@@ -28,6 +28,7 @@ class StudentBase(BaseModel):
     category: Optional[str] = Field(None, alias="category")
     aadhar_card: Optional[str] = Field(None, alias="aadharCard")
     email: Optional[str] = Field(None, alias="email")
+    session_year: Optional[str] = Field(None, alias="sessionYear")
     nationality: Optional[str] = Field("Indian", alias="nationality")
     state: Optional[str] = Field("Gujarat", alias="state")
 
@@ -95,6 +96,8 @@ class BulkStudentImportItem(BaseModel):
     email: Optional[str] = None
     nationality: Optional[str] = "Indian"
     state: Optional[str] = "Gujarat"
+    password: Optional[str] = None
+    is_active: Optional[bool] = Field(True, alias="isActive")
 
     class Config:
         populate_by_name = True

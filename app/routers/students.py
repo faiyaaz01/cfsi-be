@@ -120,6 +120,7 @@ def doc_to_student_out(doc: Dict[str, Any]) -> StudentOut:
         category=doc.get("category"),
         aadhar_card=doc.get("aadhar_card"),
         email=doc.get("email"),
+        session_year=doc.get("session_year"),
         nationality=doc.get("nationality", "Indian"),
         state=doc.get("state", "Gujarat")
     )
@@ -306,9 +307,9 @@ async def bulk_import_students(
         if not clean_roll:
             clean_roll = str(idx + 1)
 
-        # Automatic Cadet User ID assigned as per roll (e.g. 262701)
+        # Automatic Cadet User ID assigned as per roll (e.g. 262701) if not explicitly provided
         cadet_user_id = (item.student_id or "").strip()
-        if not cadet_user_id or (raw_enrollment and cadet_user_id == raw_enrollment) or cadet_user_id.startswith("2026"):
+        if not cadet_user_id:
             cadet_user_id = format_student_id(batch_val, clean_roll)
 
         student_id = cadet_user_id
@@ -320,7 +321,8 @@ async def bulk_import_students(
             "_id": student_id,
             "id": student_id,
             "student_id": student_id,
-            "enrollment_no": student_id,
+            "enrollment_no": raw_enrollment if raw_enrollment else student_id,
+            "session_year": (item.session_year or "").strip(),
             "roll_no": clean_roll,
             "name": item.name.strip(),
             "father_name": item.father_name.strip() if item.father_name else "",
@@ -362,14 +364,16 @@ async def bulk_import_students(
             created_count += 1
             await db.students.insert_one(student_doc)
 
-        # Hash birthdate password with bcrypt
-        pwd_hash = hash_password(dob_password)
+        # Hash password (custom if provided, else birth date DDMMYYYY) with bcrypt
+        effective_pwd = item.password.strip() if getattr(item, "password", None) and str(item.password).strip() else dob_password
+        pwd_hash = hash_password(effective_pwd)
 
         # Upsert corresponding user login account with Cadet User ID (e.g. 262701) as username
         user_account = {
             "username": student_id,
             "student_id": student_id,
-            "enrollment_no": student_id,
+            "enrollment_no": raw_enrollment if raw_enrollment else student_id,
+            "session_year": (item.session_year or "").strip(),
             "role": "student",
             "full_name": item.name.strip(),
             "photo_url": student_doc["photo_url"],
@@ -380,7 +384,7 @@ async def bulk_import_students(
             "phone": student_doc["student_phone"],
             "email": student_doc["email"],
             "password_hash": pwd_hash,
-            "is_active": True,
+            "is_active": item.is_active if getattr(item, "is_active", None) is not None else True,
             "token_version": 0,
         }
 
