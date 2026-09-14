@@ -76,7 +76,7 @@ class BulkStudentImportItem(BaseModel):
     course: Optional[str] = "Diploma In Fire Safety"
     batch: Optional[str] = "Batch 2026-2027"
     passing_year: Optional[str] = Field("2027", alias="passingYear")
-    grade: Optional[str] = "Active Cadet"
+    grade: Optional[str] = "Active Student"
     percentage: Optional[str] = "N/A"
     verification_status: Optional[str] = Field("Verified", alias="verificationStatus")
     issue_date: Optional[str] = Field("Ongoing", alias="issueDate")

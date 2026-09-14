@@ -118,8 +118,8 @@ async def seed_database():
                 "title": "CFSI Conducts Mega Live Fire & Search Rescue Drill in Collaboration with GIDC Vadodara",
                 "category": "Event",
                 "date": "2024-08-12",
-                "excerpt": "Over 120 cadets successfully executed complex live hydrocarbon fire suppression and mass casualty evacuation in a simulated plant blackout drill.",
-                "content": "A joint industrial disaster response drill was coordinated between CFSI senior instructors and Vadodara Industrial Safety authorities. Cadets operated high-capacity foam branches, mobile water monitors, and hydraulic rescue cutters to simulate real refinery emergencies. State safety inspectors praised the agility and discipline of CFSI student rescue squads.",
+                "excerpt": "Over 120 students successfully executed complex live hydrocarbon fire suppression and mass casualty evacuation in a simulated plant blackout drill.",
+                "content": "A joint industrial disaster response drill was coordinated between CFSI senior instructors and Vadodara Industrial Safety authorities. Students operated high-capacity foam branches, mobile water monitors, and hydraulic rescue cutters to simulate real refinery emergencies. State safety inspectors praised the agility and discipline of CFSI student rescue squads.",
                 "image_url": "https://images.unsplash.com/photo-1517524008697-84bbe3c3fd98?auto=format&fit=crop&w=1000&q=80",
                 "author": "Chief Training Officer",
                 "is_pinned": False

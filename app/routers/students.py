@@ -102,7 +102,7 @@ def doc_to_student_out(doc: Dict[str, Any]) -> StudentOut:
         course=doc.get("course", "Diploma In Fire Safety"),
         batch=doc.get("batch", "Batch 2026-2027"),
         passing_year=str(doc.get("passing_year", "2027")),
-        grade=doc.get("grade", "Active Cadet"),
+        grade=doc.get("grade", "Active Student"),
         percentage=str(doc.get("percentage", "N/A")),
         verification_status=doc.get("verification_status", "Verified"),
         issue_date=doc.get("issue_date", "Ongoing"),
@@ -182,7 +182,7 @@ async def get_my_profile(
             "course": current_user.get("course") or "DIPLOMA IN FIRE AND SAFETY MANAGEMENT",
             "batch": current_user.get("batch") or "Batch 2026-2027",
             "passing_year": "2027",
-            "grade": "Active Cadet",
+            "grade": "Active Student",
             "percentage": "N/A",
             "verification_status": "Verified",
             "issue_date": "Ongoing",
@@ -315,7 +315,7 @@ async def bulk_import_students(
             "course": item.course or "DIPLOMA IN FIRE AND SAFETY MANAGEMENT",
             "batch": batch_val,
             "passing_year": item.passing_year or "2027",
-            "grade": item.grade or "Active Cadet",
+            "grade": item.grade or "Active Student",
             "percentage": item.percentage or "N/A",
             "verification_status": item.verification_status or "Verified",
             "issue_date": item.issue_date or "Ongoing",
@@ -414,7 +414,7 @@ async def get_student(
         user_uname = (current_user.get("username") or "").lower()
         user_enr = (current_user.get("enrollment_no") or "").lower()
         if clean_id.lower() not in (user_sid, user_uname, user_enr):
-            raise HTTPException(status_code=403, detail="You can only access your own cadet record")
+            raise HTTPException(status_code=403, detail="You can only access your own student record")
     regex_pattern = f"^{re.escape(clean_id)}$"
     doc = await db.students.find_one({
         "$or": [
