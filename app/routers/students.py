@@ -149,6 +149,21 @@ async def list_students(
     results = []
     async for doc in cursor:
         results.append(doc_to_student_out(doc))
+
+    def get_roll_sort_key(s: StudentOut):
+        raw = getattr(s, "roll_no", None)
+        if raw is not None and str(raw).strip():
+            m = re.search(r"\d+", str(raw).strip())
+            if m:
+                return (0, int(m.group()))
+            return (1, str(raw).strip().lower())
+        sid = getattr(s, "student_id", None) or getattr(s, "id", None) or ""
+        m = re.search(r"\d+", str(sid).strip())
+        if m:
+            return (2, int(m.group()))
+        return (3, str(getattr(s, "name", "")).lower())
+
+    results.sort(key=get_roll_sort_key)
     return results
 
 @router.get("/profile/me", response_model=StudentOut)
@@ -475,48 +490,95 @@ async def delete_student(
     current_user: Dict[str, Any] = Depends(require_admin)
 ):
     """
-    Permanently delete a student cadet record and their user login account from MongoDB (Admin only).
+    Permanently delete a student cadet record, their user login account, and all their attendance data from MongoDB (Admin only).
     """
     clean_id = student_id.strip()
     student = await db.students.find_one({
         "$or": [
             {"id": clean_id},
             {"roll_no": clean_id},
-            {"_id": clean_id}
-        ]
-    })
-    
-    sid = student.get("id") if student else clean_id
-
-    # 1. Permanently delete student document from students collection
-    res = await db.students.delete_many({
-        "$or": [
-            {"id": sid},
-            {"_id": sid},
-            {"roll_no": sid},
-            {"id": clean_id},
-            {"_id": clean_id}
-        ]
-    })
-
-    # 2. Permanently delete linked user account from users collection
-    await db.users.delete_many({
-        "$or": [
-            {"student_id": sid},
-            {"username": sid},
-            {"_id": f"user-student-{sid}"},
-            {"student_id": clean_id},
-            {"username": clean_id}
-        ]
-    })
-
-    # 3. Permanently delete attendance records for this student
-    await db.attendance.delete_many({
-        "$or": [
-            {"student_id": sid},
+            {"_id": clean_id},
             {"student_id": clean_id}
         ]
     })
+
+    # Collect all possible candidate IDs
+    candidate_ids = {clean_id}
+    roll_no = None
+    course = None
+    if student:
+        for k in ["id", "_id", "student_id", "enrollment_no"]:
+            v = student.get(k)
+            if v:
+                candidate_ids.add(str(v).strip())
+        if student.get("roll_no"):
+            roll_no = str(student["roll_no"]).strip()
+        if student.get("course"):
+            course = str(student["course"]).strip()
+
+    # Also find any linked user to collect username and user _id
+    linked_users = await db.users.find({
+        "$or": [
+            {"student_id": {"$in": list(candidate_ids)}},
+            {"username": {"$in": list(candidate_ids)}},
+            {"_id": {"$in": [f"user-student-{cid}" for cid in candidate_ids]}}
+        ]
+    }).to_list(length=10)
+
+    for u in linked_users:
+        if u.get("username"):
+            candidate_ids.add(str(u["username"]).strip())
+        if u.get("student_id"):
+            candidate_ids.add(str(u["student_id"]).strip())
+
+    id_list = list(candidate_ids)
+
+    # 1. Permanently delete all attendance records for this cadet from db.attendance
+    attendance_filters = [
+        {"student_id": {"$in": id_list}},
+        {"studentId": {"$in": id_list}}
+    ]
+    if roll_no:
+        if course:
+            attendance_filters.append({"roll_no": roll_no, "course": course})
+            attendance_filters.append({"rollNo": roll_no, "course": course})
+        else:
+            attendance_filters.append({"roll_no": roll_no})
+            attendance_filters.append({"rollNo": roll_no})
+
+    await db.attendance.delete_many({"$or": attendance_filters})
+
+    # 2. Permanently delete student document from students collection
+    student_del_filters = [
+        {"id": {"$in": id_list}},
+        {"_id": {"$in": id_list}},
+        {"student_id": {"$in": id_list}}
+    ]
+    if roll_no and course:
+        student_del_filters.append({"roll_no": roll_no, "course": course})
+    
+    res = await db.students.delete_many({"$or": student_del_filters})
+
+    # 3. Permanently delete linked user account from users collection
+    user_del_filters = [
+        {"student_id": {"$in": id_list}},
+        {"username": {"$in": id_list}}
+    ]
+    for cid in id_list:
+        user_del_filters.append({"_id": f"user-student-{cid}"})
+    await db.users.delete_many({"$or": user_del_filters})
+
+    # 4. Broadcast real-time SSE update so all active client sessions refresh attendance
+    try:
+        from app.routers.attendance import broadcaster
+        await broadcaster.broadcast({
+            "event": "attendance_updated",
+            "action": "delete_student",
+            "student_id": clean_id,
+            "all_ids": id_list
+        })
+    except Exception:
+        pass
 
     if res.deleted_count == 0 and not student:
         raise HTTPException(status_code=404, detail="Student record not found in database")

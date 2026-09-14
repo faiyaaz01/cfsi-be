@@ -58,29 +58,18 @@ async def seed_database():
             ]
         })
 
-        # 3. Clean up and remove any demo students and demo student login accounts from MongoDB
-        demo_student_ids = [
-            "262701", "262702", "262703", "262704", "262705", "262706", "262707", "262708"
-        ]
+        # 3. Clean up and remove any old legacy demo mock students from MongoDB by mock name only
         demo_student_names = [
             "Aarav N. Sharma", "Diya K. Patel", "Rohan S. Mehta", "Ananya R. Desai",
             "Virendra M. Solanki", "Sneha P. Joshi", "Karan B. Rathod", "Pooja N. Dave",
             "Pooja B. Joshi", "Harshit V. Parmar", "Neha T. Chauhan"
         ]
         await db.students.delete_many({
-            "$or": [
-                {"id": {"$in": demo_student_ids}},
-                {"roll_no": {"$in": ["01", "02", "03", "04", "05", "06", "07", "08"]}},
-                {"name": {"$in": demo_student_names}}
-            ]
+            "name": {"$in": demo_student_names}
         })
         await db.users.delete_many({
             "role": "student",
-            "$or": [
-                {"username": {"$in": demo_student_ids}},
-                {"student_id": {"$in": demo_student_ids}},
-                {"full_name": {"$in": demo_student_names}}
-            ]
+            "full_name": {"$in": demo_student_names}
         })
         await db.system_meta.update_one(
             {"_id": "initial_seed_done"},

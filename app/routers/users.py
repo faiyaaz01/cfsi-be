@@ -77,23 +77,97 @@ async def delete_user(user_id: str, db=Depends(get_database), actor=Depends(requ
     if str(user["_id"]) == str(actor["_id"]) or user.get("username") == actor.get("username"):
         raise HTTPException(409, "You cannot delete your own admin account")
     
-    # 1. Permanently remove from users collection
-    await db.users.delete_many({
-        "$or": [
-            {"_id": user["_id"]},
-            {"username": user.get("username")}
-        ]
-    })
+    # 1. Collect all candidate identifiers from user document
+    candidate_ids = set()
+    for field in ["student_id", "username", "enrollment_no", "id"]:
+        val = user.get(field)
+        if val:
+            candidate_ids.add(str(val).strip())
+    if user_id:
+        candidate_ids.add(str(user_id).strip())
+    if str(user.get("_id")):
+        candidate_ids.add(str(user["_id"]).strip())
 
-    # 2. If student user, also permanently remove associated student and attendance records
-    sid = user.get("student_id") or (user.get("username") if user.get("role") == "student" else None)
-    if sid:
-        await db.students.delete_many({
-            "$or": [
-                {"id": sid},
-                {"roll_no": sid},
-                {"_id": sid},
-                {"username": sid}
-            ]
+    # 2. Find any corresponding student record(s) in students collection
+    student_lookup = []
+    for cand in candidate_ids:
+        student_lookup.extend([
+            {"id": cand},
+            {"_id": cand},
+            {"student_id": cand},
+            {"roll_no": cand}
+        ])
+    
+    students = await db.students.find({"$or": student_lookup}).to_list(length=20) if student_lookup else []
+    
+    # Collect additional IDs and roll/course details from student records
+    roll_course_pairs = []
+    for s in students:
+        for key in ["id", "_id", "student_id", "enrollment_no"]:
+            val = s.get(key)
+            if val:
+                candidate_ids.add(str(val).strip())
+        r_no = str(s.get("roll_no") or "").strip()
+        if r_no:
+            roll_course_pairs.append({
+                "roll_no": r_no,
+                "course": s.get("course")
+            })
+
+    id_list = list(candidate_ids)
+
+    # 3. Permanently remove all matching attendance records from db.attendance
+    attendance_filters = []
+    if id_list:
+        attendance_filters.append({"student_id": {"$in": id_list}})
+        attendance_filters.append({"studentId": {"$in": id_list}})
+    
+    for pair in roll_course_pairs:
+        r = pair["roll_no"]
+        c = pair["course"]
+        if c:
+            attendance_filters.append({"roll_no": r, "course": c})
+            attendance_filters.append({"rollNo": r, "course": c})
+        else:
+            attendance_filters.append({"roll_no": r})
+            attendance_filters.append({"rollNo": r})
+
+    if attendance_filters:
+        await db.attendance.delete_many({"$or": attendance_filters})
+
+    # 4. Permanently remove matching student record(s) from db.students
+    student_del_filters = []
+    if id_list:
+        student_del_filters.extend([
+            {"id": {"$in": id_list}},
+            {"_id": {"$in": id_list}},
+            {"student_id": {"$in": id_list}}
+        ])
+    for pair in roll_course_pairs:
+        if pair["course"]:
+            student_del_filters.append({"roll_no": pair["roll_no"], "course": pair["course"]})
+    
+    if student_del_filters:
+        await db.students.delete_many({"$or": student_del_filters})
+
+    # 5. Permanently remove user record(s) from db.users
+    user_del_filters = [
+        {"_id": user["_id"]},
+        {"username": user.get("username")}
+    ]
+    if id_list:
+        user_del_filters.append({"student_id": {"$in": id_list}})
+        user_del_filters.append({"username": {"$in": id_list}})
+    await db.users.delete_many({"$or": user_del_filters})
+
+    # 6. Broadcast real-time SSE update so all active client sessions refresh
+    try:
+        from app.routers.attendance import broadcaster
+        await broadcaster.broadcast({
+            "event": "attendance_updated",
+            "action": "delete_user",
+            "user_id": str(user_id),
+            "student_ids": id_list
         })
-        await db.attendance.delete_many({"student_id": sid})
+    except Exception:
+        pass
