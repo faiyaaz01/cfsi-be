@@ -134,7 +134,10 @@ async def list_students(
     """
     List enrolled students/cadets. Requires authentication.
     """
-    filter_q = {}
+    filter_q = {
+        "id": {"$not": {"$regex": "@|admin|teacher", "$options": "i"}},
+        "name": {"$not": {"$regex": "administrator", "$options": "i"}}
+    }
     if course:
         filter_q["course"] = course
     

@@ -39,7 +39,7 @@ broadcaster = AttendanceBroadcaster()
 
 def compute_lock_status(doc: Dict[str, Any]) -> tuple[bool, Optional[str], Optional[str]]:
     """
-    Computes whether an attendance record is locked based on the 48-hour editing window.
+    Computes whether an attendance record is locked based on the 24-hour editing window.
     Returns (is_locked, uploaded_at_iso, can_edit_until_iso).
     """
     raw_uploaded = doc.get("uploaded_at") or doc.get("uploadedAt") or doc.get("created_at") or doc.get("createdAt")
@@ -52,7 +52,7 @@ def compute_lock_status(doc: Dict[str, Any]) -> tuple[bool, Optional[str], Optio
         dt = datetime.fromisoformat(clean_str)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        deadline = dt + timedelta(hours=48)
+        deadline = dt + timedelta(hours=24)
         now = datetime.now(timezone.utc)
         is_locked = now > deadline
         return is_locked, dt.isoformat(), deadline.isoformat()
@@ -152,7 +152,7 @@ async def create_or_upsert_attendance(
     db: AsyncIOMotorDatabase = Depends(get_database),
     current_user: Dict[str, Any] = Depends(require_staff)
 ):
-    """Mark attendance for a cadet in a slot with upsert and 48-hour lock check."""
+    """Mark attendance for a cadet in a slot with upsert and 24-hour lock check."""
     query = {
         "student_id": record.student_id,
         "date": record.date,
@@ -165,7 +165,7 @@ async def create_or_upsert_attendance(
         if is_locked:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Attendance record is locked: cannot be modified after 48 hours of upload (expired at {can_edit_until})."
+                detail=f"Attendance record is locked: cannot be modified after 24 hours of upload (expired at {can_edit_until})."
             )
 
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -221,7 +221,7 @@ async def bulk_save_attendance(
 ):
     """
     Bulk upsert 3-slot muster table attendance records in MongoDB (Admin/Teacher only).
-    Enforces 48-hour locking window and broadcasts real-time updates.
+    Enforces 24-hour locking window and broadcasts real-time updates.
     """
     now_iso = datetime.now(timezone.utc).isoformat()
     default_marker = current_user.get("full_name") or current_user.get("username")
@@ -239,7 +239,7 @@ async def bulk_save_attendance(
             if is_locked:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Attendance for date '{item.date}' is locked: the 48-hour editing window expired at {can_edit_until}."
+                    detail=f"Attendance for date '{item.date}' is locked: the 24-hour editing window expired at {can_edit_until}."
                 )
 
     saved_records = []
@@ -301,7 +301,7 @@ async def update_attendance(
     db: AsyncIOMotorDatabase = Depends(get_database),
     current_user: Dict[str, Any] = Depends(require_staff)
 ):
-    """Update a specific attendance record by ID (restricted to 48 hours)."""
+    """Update a specific attendance record by ID (restricted to 24 hours)."""
     existing = await db.attendance.find_one({"$or": [{"_id": record_id}, {"id": record_id}]})
     if not existing:
         raise HTTPException(status_code=404, detail="Attendance record not found")
@@ -310,7 +310,7 @@ async def update_attendance(
     if is_locked:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Attendance record is locked: cannot be modified after 48 hours of upload (expired at {can_edit_until})."
+            detail=f"Attendance record is locked: cannot be modified after 24 hours of upload (expired at {can_edit_until})."
         )
 
     update_fields = {}
@@ -346,7 +346,7 @@ async def delete_attendance(
     db: AsyncIOMotorDatabase = Depends(get_database),
     current_user: Dict[str, Any] = Depends(require_staff)
 ):
-    """Delete attendance record by ID (restricted to 48 hours)."""
+    """Delete attendance record by ID (restricted to 24 hours)."""
     existing = await db.attendance.find_one({"$or": [{"_id": record_id}, {"id": record_id}]})
     if not existing:
         raise HTTPException(status_code=404, detail="Attendance record not found")
@@ -355,7 +355,7 @@ async def delete_attendance(
     if is_locked:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Attendance record is locked: cannot be deleted after 48 hours of upload (expired at {can_edit_until})."
+            detail=f"Attendance record is locked: cannot be deleted after 24 hours of upload (expired at {can_edit_until})."
         )
 
     await db.attendance.delete_one({"_id": existing["_id"]})
@@ -377,7 +377,7 @@ async def clear_day_attendance(
     db: AsyncIOMotorDatabase = Depends(get_database),
     current_user: Dict[str, Any] = Depends(require_staff)
 ):
-    """Reset attendance records for a specific date (restricted to 48 hours)."""
+    """Reset attendance records for a specific date (restricted to 24 hours)."""
     filter_q = {"date": date}
     if course:
         filter_q["course"] = course
@@ -388,7 +388,7 @@ async def clear_day_attendance(
         if is_locked:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Attendance for date '{date}' is locked: cannot be cleared after 48 hours of upload (expired at {can_edit_until})."
+                detail=f"Attendance for date '{date}' is locked: cannot be cleared after 24 hours of upload (expired at {can_edit_until})."
             )
 
     res = await db.attendance.delete_many(filter_q)
