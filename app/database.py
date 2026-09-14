@@ -1,4 +1,5 @@
 import logging
+import certifi
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 import mongomock_motor
 from app.config import settings
@@ -15,9 +16,18 @@ db_manager = DatabaseManager()
 async def connect_to_mongo():
     """Initializes connection to MongoDB (or mock fallback if local mongod is offline)."""
     try:
+        client_kwargs = {
+            "serverSelectionTimeoutMS": 5000,
+        }
+        # Provide CA bundle from certifi to avoid macOS SSL certificate verification failures (e.g. Atlas mongodb+srv)
+        try:
+            client_kwargs["tlsCAFile"] = certifi.where()
+        except Exception as cert_err:
+            logger.warning(f"Could not load certifi CA file: {cert_err}")
+
         real_client = AsyncIOMotorClient(
             settings.MONGODB_URL,
-            serverSelectionTimeoutMS=2000
+            **client_kwargs
         )
         # Verify server is responding
         await real_client.admin.command("ping")
