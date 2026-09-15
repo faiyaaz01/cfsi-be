@@ -87,64 +87,26 @@ async def seed_database():
         # Clean up any legacy results collection if present
         await db.results.drop()
 
-        # 4. Seed News Posts
-        news_seed = [
-            {
-                "_id": "news-01",
-                "id": "news-01",
-                "title": "Admissions Open for Academic Year 2024-25 — Diploma & Certificate Batches",
-                "category": "Announcement",
-                "date": "2024-08-20",
-                "excerpt": "Applications are now invited for Government-recognized Diploma in Fire Safety (1 Year) and Sub Fire Officer programs. Limited seats available per batch.",
-                "content": "Central Fire Safety Institute (CFSI), Vadodara announces the commencement of admissions for the upcoming session. Candidates who have passed 10th/12th or ITI are eligible to enroll for Certificate and Diploma programs. Practical training includes high-altitude rappelling, smoke chamber search and rescue, and industrial chemical fire drills. Scholarship concessions are available for merit students and children of defense/police personnel.",
-                "image_url": "https://images.unsplash.com/photo-1542282088-72c9c27ed0cd?auto=format&fit=crop&w=1000&q=80",
-                "author": "Admissions Directorate",
-                "is_pinned": True
-            },
-            {
-                "_id": "news-02",
-                "id": "news-02",
-                "title": "CFSI Conducts Mega Live Fire & Search Rescue Drill in Collaboration with GIDC Vadodara",
-                "category": "Event",
-                "date": "2024-08-12",
-                "excerpt": "Over 120 students successfully executed complex live hydrocarbon fire suppression and mass casualty evacuation in a simulated plant blackout drill.",
-                "content": "A joint industrial disaster response drill was coordinated between CFSI senior instructors and Vadodara Industrial Safety authorities. Students operated high-capacity foam branches, mobile water monitors, and hydraulic rescue cutters to simulate real refinery emergencies. State safety inspectors praised the agility and discipline of CFSI student rescue squads.",
-                "image_url": "https://images.unsplash.com/photo-1517524008697-84bbe3c3fd98?auto=format&fit=crop&w=1000&q=80",
-                "author": "Chief Training Officer",
-                "is_pinned": False
-            },
-            {
-                "_id": "news-03",
-                "id": "news-03",
-                "title": "CFSI Awarded Best Fire Safety Vocational Training Institute in Western India by IFSMA",
-                "category": "News",
-                "date": "2024-07-28",
-                "excerpt": "Recognized for 100% practical ground drill curriculum, modern breathing apparatus training facility, and stellar placement records across petrochemical hubs.",
-                "content": "The International Fire & Safety Management Association (IFSMA) presented the prestigious Western Regional Excellence Award to Central Fire Safety Institute Vadodara during the 15th National Fire Congress in New Delhi. The honor celebrates our continuous commitment to zero-fatality industrial safety education and ground drill standards.",
-                "image_url": "https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=1000&q=80",
-                "author": "Institute Directorate",
-                "is_pinned": False
-            },
-            {
-                "_id": "news-04",
-                "id": "news-04",
-                "title": "Upcoming National Fire Safety Week — Free Public Awareness & Fire Extinguisher Clinic",
-                "category": "Event",
-                "date": "2024-09-05",
-                "excerpt": "Join us at CFSI Vadodara campus for interactive safety workshops, home LPG gas safety demonstrations, and hands-on extinguisher training.",
-                "content": "As part of our civic outreach initiative, CFSI faculty and senior trainees will host a 2-day open workshop for school teachers, factory supervisors, and housing society managers. Participants will learn PASS fire extinguisher usage, emergency CPR, and primary burn triage with free participation certificates.",
-                "image_url": "https://images.unsplash.com/photo-1577495508048-b635879837f1?auto=format&fit=crop&w=1000&q=80",
-                "author": "Community Outreach Cell",
-                "is_pinned": False
-            }
-        ]
+        # 4. Clean up any legacy demo news posts
+        await db.news_posts.delete_many({
+            "id": {"$in": ["news-01", "news-02", "news-03", "news-04"]}
+        })
 
-        for n in news_seed:
-            existing = await db.news_posts.find_one({"_id": n["_id"]})
-            if not existing:
-                await db.news_posts.insert_one(n)
+        # 5. Clean up any legacy demo web content (courses, drills, photos, videos)
+        await db.web_courses.delete_many({
+            "id": {"$in": ["cfs-01", "dfs-02", "pgdfs-03", "ffsi-04"]}
+        })
+        await db.web_drills.delete_many({
+            "id": {"$in": ["tr-01", "tr-02", "tr-03"]}
+        })
+        await db.web_photos.delete_many({
+            "id": {"$regex": "^img-(0|1)"}
+        })
+        await db.web_videos.delete_many({
+            "id": {"$regex": "^vid-(0|1)"}
+        })
 
-        print("[MongoDB] CFSI collections initialized and demo data seeded successfully.")
+        print("[MongoDB] CFSI collections initialized and demo data purged successfully.")
     except Exception as e:
         print(f"[MongoDB ERROR] Error seeding database: {e}")
         raise e
