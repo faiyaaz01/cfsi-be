@@ -29,11 +29,16 @@ async def find(user_id, db):
     return user
 
 async def validate_link(data, db):
-    if data["role"] == "student":
+    if data.get("role") == "student":
         sid = data.get("student_id")
         if not sid or not await db.students.find_one({"$or": [{"id": sid}, {"roll_no": sid}]}):
             raise HTTPException(422, "Students require an existing student ID")
-    else:
+    elif data.get("role") == "leader":
+        sid = data.get("student_id")
+        if sid and not await db.students.find_one({"$or": [{"id": sid}, {"roll_no": sid}]}):
+            # If not found in students collection, allow or clear
+            pass
+    elif data.get("role") not in ("leader", "student"):
         data["student_id"] = None
 
 @router.get("", response_model=list[UserOut])
@@ -59,7 +64,8 @@ async def create_user(payload: UserCreate, db=Depends(get_database)):
 async def update_user(user_id: str, payload: UserUpdate, db=Depends(get_database), actor=Depends(require_admin)):
     user = await find(user_id, db)
     changes = payload.model_dump(exclude_unset=True)
-    if any(changes.get(k) is None for k in changes if k != "student_id"):
+    nullable_keys = {"student_id", "assigned_modules", "assigned_slots"}
+    if any(changes.get(k) is None for k in changes if k not in nullable_keys):
         raise HTTPException(422, "Fields cannot be null")
     if user["_id"] == actor["_id"] and (changes.get("role", "admin") != "admin" or changes.get("is_active") is False):
         raise HTTPException(409, "You cannot demote or deactivate your own admin account")

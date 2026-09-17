@@ -78,6 +78,70 @@ def doc_to_attendance_out(doc: Dict[str, Any]) -> AttendanceOut:
         can_edit_until=can_edit_until
     )
 
+def check_leader_slot_lock(slot: str, date_str: str, current_user: Dict[str, Any]):
+    """
+    Validates slot-wise time lock for users with role 'leader'.
+    Leaders can only mark attendance:
+    1. For today's date in Indian Standard Time (IST)
+    2. During the slot's active window:
+       - Slot 1: 08:00 to 10:20 AM (Locked at 10:20 AM)
+       - Slot 2: 10:30 AM to 01:20 PM / 13:20 (Locked at 01:20 PM)
+       - Slot 3: 02:00 PM / 14:00 to 05:20 PM / 17:20 (Locked at 05:20 PM)
+    Admins and teachers bypass this rule.
+    """
+    if current_user.get("role") != "leader":
+        return
+
+    # Check assigned slots if specified on user profile
+    assigned_slots = current_user.get("assigned_slots") or []
+    if assigned_slots and slot not in assigned_slots:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied: You are not assigned to mark attendance for {slot}."
+        )
+
+    # Calculate IST time (UTC+5:30)
+    ist_tz = timezone(timedelta(hours=5, minutes=30))
+    now_ist = datetime.now(ist_tz)
+    today_str = now_ist.strftime("%Y-%m-%d")
+
+    if date_str != today_str:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Leaders can only mark attendance for today ({today_str}). Past or future dates are locked."
+        )
+
+    norm_slot = (slot or "").strip().lower()
+    current_minutes = now_ist.hour * 60 + now_ist.minute
+
+    # Windows in minutes from midnight:
+    # Slot 1: 08:00 (480) to 10:20 (620)
+    # Slot 2: 10:30 (630) to 13:20 (800)
+    # Slot 3: 14:00 (840) to 17:20 (1040)
+    if "1" in norm_slot or "one" in norm_slot or "pt" in norm_slot:
+        start_min, end_min = 480, 620
+        label, cutoff = "Slot 1 (08:00 - 10:00 AM)", "10:20 AM"
+    elif "2" in norm_slot or "two" in norm_slot or "theory" in norm_slot:
+        start_min, end_min = 630, 800
+        label, cutoff = "Slot 2 (10:30 AM - 01:00 PM)", "01:20 PM"
+    elif "3" in norm_slot or "three" in norm_slot or "drill" in norm_slot:
+        start_min, end_min = 840, 1040
+        label, cutoff = "Slot 3 (02:00 - 05:00 PM)", "05:20 PM"
+    else:
+        start_min, end_min = 480, 620
+        label, cutoff = slot, "cutoff time"
+
+    if current_minutes < start_min:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"{label} attendance is not yet open. It will unlock at the scheduled slot start time."
+        )
+    if current_minutes > end_min:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"{label} attendance is locked for leaders. The allowed marking window closed at {cutoff}."
+        )
+
 @router.get("/stream")
 async def attendance_stream(request: Request):
     """
@@ -153,6 +217,8 @@ async def create_or_upsert_attendance(
     current_user: Dict[str, Any] = Depends(require_staff)
 ):
     """Mark attendance for a cadet in a slot with upsert and 24-hour lock check."""
+    check_leader_slot_lock(record.slot, record.date, current_user)
+
     query = {
         "student_id": record.student_id,
         "date": record.date,
@@ -226,8 +292,9 @@ async def bulk_save_attendance(
     now_iso = datetime.now(timezone.utc).isoformat()
     default_marker = current_user.get("full_name") or current_user.get("username")
 
-    # Pre-validation: check if any record being touched is already locked
+    # Pre-validation: check if leader slot is unlocked and if any record being touched is already locked
     for item in payload.records:
+        check_leader_slot_lock(item.slot, item.date, current_user)
         query = {
             "student_id": item.student_id,
             "date": item.date,
@@ -306,6 +373,8 @@ async def update_attendance(
     if not existing:
         raise HTTPException(status_code=404, detail="Attendance record not found")
     
+    check_leader_slot_lock(existing.get("slot"), existing.get("date"), current_user)
+
     is_locked, _, can_edit_until = compute_lock_status(existing)
     if is_locked:
         raise HTTPException(
@@ -351,6 +420,8 @@ async def delete_attendance(
     if not existing:
         raise HTTPException(status_code=404, detail="Attendance record not found")
 
+    check_leader_slot_lock(existing.get("slot"), existing.get("date"), current_user)
+
     is_locked, _, can_edit_until = compute_lock_status(existing)
     if is_locked:
         raise HTTPException(
@@ -378,6 +449,11 @@ async def clear_day_attendance(
     current_user: Dict[str, Any] = Depends(require_staff)
 ):
     """Reset attendance records for a specific date (restricted to 24 hours)."""
+    if current_user.get("role") == "leader":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Leaders cannot clear day attendance. Please contact an administrator."
+        )
     filter_q = {"date": date}
     if course:
         filter_q["course"] = course
@@ -409,9 +485,14 @@ async def clear_all_attendance(
     current_user: Dict[str, Any] = Depends(require_staff)
 ):
     """
-    Clear all attendance muster records or for an optional course in MongoDB (Admin/Staff only).
+    Clear all attendance muster records or for an optional course in MongoDB (Admin only).
     Used for database reset and testing.
     """
+    if current_user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required to clear all attendance records."
+        )
     filter_q = {}
     if course:
         filter_q["course"] = course

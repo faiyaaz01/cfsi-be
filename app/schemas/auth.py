@@ -1,13 +1,13 @@
-from typing import Optional, Union
+from typing import Optional, Union, List
 from pydantic import BaseModel, Field, field_validator
 from typing import Literal
 
-Role = Literal["admin", "teacher", "student"]
+Role = Literal["admin", "teacher", "student", "leader"]
 
 class LoginRequest(BaseModel):
     username: str
     password: str
-    role: Optional[str] = None  # 'admin' | 'student' | 'auto'
+    role: Optional[str] = None  # 'admin' | 'student' | 'teacher' | 'leader' | 'auto'
 
 class UserOut(BaseModel):
     id: Union[str, int]
@@ -17,6 +17,8 @@ class UserOut(BaseModel):
     full_name: Optional[str] = None
     photo_url: Optional[str] = None
     is_active: bool = True
+    assigned_modules: Optional[List[str]] = Field(default_factory=list)
+    assigned_slots: Optional[List[str]] = Field(default_factory=list)
 
     class Config:
         populate_by_name = True
@@ -42,6 +44,8 @@ class UserCreate(BaseModel):
     full_name: str = Field(min_length=1, max_length=200)
     student_id: Optional[str] = None
     is_active: bool = True
+    assigned_modules: Optional[List[str]] = Field(default_factory=list)
+    assigned_slots: Optional[List[str]] = Field(default_factory=list)
 
     @field_validator("password")
     @classmethod
@@ -56,6 +60,8 @@ class UserUpdate(BaseModel):
     full_name: Optional[str] = Field(default=None, min_length=1, max_length=200)
     student_id: Optional[str] = None
     is_active: Optional[bool] = None
+    assigned_modules: Optional[List[str]] = None
+    assigned_slots: Optional[List[str]] = None
 
     @field_validator("password")
     @classmethod

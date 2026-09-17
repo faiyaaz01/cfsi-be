@@ -60,13 +60,27 @@ async def login(login_data: LoginRequest, db: AsyncIOMotorDatabase = Depends(get
             detail="Account is inactive"
         )
     
-    # If the client requested specific portal role, verify compatibility
+    # Portal isolation enforcement: student portal for students/leaders, institute portal for admin/teachers
     user_role = user.get("role", "student")
-    if login_data.role and login_data.role != "auto" and login_data.role != user_role:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"This account does not have permission for the '{login_data.role}' portal"
-        )
+    if login_data.role and login_data.role != "auto":
+        req_portal = login_data.role.strip().lower()
+        if req_portal == "student":
+            if user_role not in ("student", "leader"):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access restricted: Administration and Faculty accounts must log in via the Institute Login portal."
+                )
+        elif req_portal in ("institute", "admin", "staff", "faculty"):
+            if user_role not in ("admin", "teacher"):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access restricted: Student and Cadet Leader accounts must log in via the Student Login portal."
+                )
+        elif user_role != req_portal:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"This account does not have permission for the '{login_data.role}' portal"
+            )
     
     user_id_str = str(user.get("_id", user.get("id", "")))
     token_data = {

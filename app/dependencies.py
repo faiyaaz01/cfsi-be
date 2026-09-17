@@ -61,6 +61,6 @@ async def require_student(current_user: Dict[str, Any] = Depends(get_current_use
 
 
 async def require_staff(current_user=Depends(get_current_user)):
-    if current_user.get("role") not in ("admin", "teacher"):
-        raise HTTPException(status_code=403, detail="Admin or Teacher access required")
+    if current_user.get("role") not in ("admin", "teacher", "leader"):
+        raise HTTPException(status_code=403, detail="Admin, Teacher, or Leader access required")
     return current_user
