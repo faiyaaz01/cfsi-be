@@ -222,7 +222,13 @@ async def update_my_profile(
     db: AsyncIOMotorDatabase = Depends(get_database),
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
-    """Update profile fields for the currently logged in student."""
+    """Update profile fields. Locked for students - only administrators can edit profile details."""
+    if current_user.get("role") in ["student", "leader"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Student profile is locked by Administration. Profile edits can only be performed by CFSI Administrators."
+        )
+
     sid = current_user.get("student_id") or current_user.get("username")
     if not sid:
         raise HTTPException(status_code=404, detail="No student ID associated with this account")
@@ -285,6 +291,89 @@ async def update_my_profile(
     updated_doc = await db.students.find_one({"_id": doc["_id"]})
     return doc_to_student_out(updated_doc)
 
+@router.put("/{student_id}", response_model=StudentOut)
+async def admin_update_student(
+    student_id: str,
+    payload: StudentProfileUpdate,
+    db: AsyncIOMotorDatabase = Depends(get_database),
+    current_user: Dict[str, Any] = Depends(require_admin)
+):
+    """Admin endpoint to update any student's profile."""
+    clean_id = student_id.strip()
+    regex_pattern = f"^{re.escape(clean_id)}$"
+    doc = await db.students.find_one({
+        "$or": [
+            {"id": {"$regex": regex_pattern, "$options": "i"}},
+            {"roll_no": {"$regex": regex_pattern, "$options": "i"}},
+            {"enrollment_no": {"$regex": regex_pattern, "$options": "i"}},
+            {"_id": clean_id}
+        ]
+    })
+    if not doc:
+        raise HTTPException(status_code=404, detail="Student record not found")
+
+    update_fields = {}
+    if payload.name is not None:
+        update_fields["name"] = payload.name.strip()
+    if payload.father_name is not None:
+        update_fields["father_name"] = payload.father_name.strip()
+    if payload.mother_name is not None:
+        update_fields["mother_name"] = payload.mother_name.strip()
+    if payload.birth_date is not None:
+        update_fields["birth_date"] = payload.birth_date.strip()
+    if payload.gender is not None:
+        update_fields["gender"] = payload.gender.strip().upper()
+    if payload.present_address is not None:
+        update_fields["present_address"] = payload.present_address.strip()
+    if payload.student_phone is not None:
+        update_fields["student_phone"] = payload.student_phone.strip()
+    if payload.father_phone is not None:
+        update_fields["father_phone"] = payload.father_phone.strip()
+    if payload.mother_phone is not None:
+        update_fields["mother_phone"] = payload.mother_phone.strip()
+    if payload.category is not None:
+        update_fields["category"] = payload.category.strip()
+    if payload.aadhar_card is not None:
+        update_fields["aadhar_card"] = payload.aadhar_card.strip()
+    if payload.email is not None:
+        update_fields["email"] = payload.email.strip()
+    if payload.nationality is not None:
+        update_fields["nationality"] = payload.nationality.strip()
+    if payload.state is not None:
+        update_fields["state"] = payload.state.strip()
+    if payload.mode is not None:
+        update_fields["mode"] = payload.mode.strip().upper()
+    if payload.photo_url is not None:
+        update_fields["photo_url"] = payload.photo_url.strip() if payload.photo_url else None
+    if payload.center_name or payload.center_location:
+        c_name = payload.center_name or payload.center_location
+        update_fields["center_location"] = c_name
+        update_fields["center_name"] = c_name
+
+    if update_fields:
+        await db.students.update_one({"_id": doc["_id"]}, {"$set": update_fields})
+        
+        # Sync changes to user account if exists
+        user_updates = {}
+        if "name" in update_fields:
+            user_updates["full_name"] = update_fields["name"]
+        if "student_phone" in update_fields:
+            user_updates["phone"] = update_fields["student_phone"]
+        if "gender" in update_fields:
+            user_updates["gender"] = update_fields["gender"]
+        if "email" in update_fields:
+            user_updates["email"] = update_fields["email"]
+        if "photo_url" in update_fields:
+            user_updates["photo_url"] = update_fields["photo_url"]
+        if user_updates:
+            await db.users.update_many(
+                {"$or": [{"student_id": doc.get("id")}, {"username": doc.get("id")}, {"_id": f"user-student-{doc.get('id')}"}]},
+                {"$set": user_updates}
+            )
+
+    updated_doc = await db.students.find_one({"_id": doc["_id"]})
+    return doc_to_student_out(updated_doc)
+
 @router.post("/bulk-import", response_model=BulkImportResult)
 async def bulk_import_students(
     payload: BulkImportRequest,
@@ -342,7 +431,7 @@ async def bulk_import_students(
             "center_location": center_val,
             "center_name": center_val,
             "mode": (item.mode or "REGULAR").strip().upper(),
-            "photo_url": item.photo_url or "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=200&q=80",
+            "photo_url": item.photo_url or None,
             "present_address": item.present_address or "",
             "student_phone": item.student_phone or "",
             "father_phone": item.father_phone or "",

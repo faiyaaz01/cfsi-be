@@ -71,6 +71,15 @@ async def seed_database():
             "role": "student",
             "full_name": {"$in": demo_student_names}
         })
+        # Clear any demo unsplash photo URLs from students and user accounts
+        await db.students.update_many(
+            {"photo_url": {"$regex": "unsplash"}},
+            {"$set": {"photo_url": None}}
+        )
+        await db.users.update_many(
+            {"photo_url": {"$regex": "unsplash"}},
+            {"$set": {"photo_url": None}}
+        )
         await db.system_meta.update_one(
             {"_id": "initial_seed_done"},
             {"$set": {"initialized": True, "demo_students_removed": True}},
