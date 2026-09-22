@@ -1,10 +1,11 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import Response, FileResponse
+from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.config import settings
-from app.database import connect_to_mongo, close_mongo_connection, db_manager
+from app.database import connect_to_mongo, close_mongo_connection, db_manager, get_database
 from app.seed import seed_database
 from app.routers import (
     auth_router,
@@ -48,11 +49,35 @@ app.include_router(attendance_router)
 app.include_router(news_router)
 app.include_router(web_content_router)
 
-# Mount Local Static Media Uploads (Private Server Storage)
+# Dynamic Media Serving Route (Local disk + MongoDB fallback for Vercel/serverless)
 uploads_dir = Path(__file__).resolve().parent.parent / "uploads"
-uploads_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/api/uploads", StaticFiles(directory=str(uploads_dir)), name="api_uploads")
-app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
+try:
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+except Exception:
+    uploads_dir = Path("/tmp/uploads")
+    try:
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+@app.get("/api/uploads/{filename}")
+@app.get("/uploads/{filename}")
+async def serve_uploaded_media(filename: str, db: AsyncIOMotorDatabase = Depends(get_database)):
+    # 1. Check local disk first (instant on localhost/VPS)
+    disk_path = uploads_dir / filename
+    if disk_path.exists() and disk_path.is_file():
+        return FileResponse(str(disk_path))
+
+    # 2. Check MongoDB media_files (persistent on Vercel / serverless)
+    doc = await db.media_files.find_one({"_id": filename})
+    if doc and "data" in doc:
+        return Response(
+            content=doc["data"],
+            media_type=doc.get("content_type", "image/jpeg"),
+            headers={"Cache-Control": "public, max-age=31536000, immutable"}
+        )
+
+    raise HTTPException(status_code=404, detail="Image not found")
 
 @app.get("/")
 def root():
