@@ -1,6 +1,7 @@
 from typing import List, Dict, Any, Optional
+from pathlib import Path
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.database import get_database
 from app.dependencies import require_admin
@@ -376,3 +377,72 @@ async def update_display_settings(
         upsert=True
     )
     return settings_in
+
+# =========================================================================
+# 6. PRIVATE SELF-HOSTED IMAGE UPLOAD ENDPOINT
+# =========================================================================
+ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+ALLOWED_MIME_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+}
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB limit
+
+UPLOADS_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+@router.post("/upload-image", status_code=status.HTTP_201_CREATED)
+async def upload_image(
+    file: UploadFile = File(...),
+    admin: Dict[str, Any] = Depends(require_admin)
+):
+    """
+    Upload an image file directly to the institute's private local disk storage.
+    Files are stored in cfsi-be/uploads/ and served via /api/uploads/<filename>.
+    MongoDB Atlas database only stores the lightweight relative path, consuming 0 MB of cloud DB quota.
+    """
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file uploaded")
+
+    # Extension check
+    ext = Path(file.filename).suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file format '{ext}'. Allowed formats: JPG, PNG, WEBP, GIF"
+        )
+
+    # MIME type validation if provided
+    if file.content_type and file.content_type.lower() not in ALLOWED_MIME_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid content type '{file.content_type}'. Must be a valid image."
+        )
+
+    content = await file.read()
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    if len(content) > MAX_FILE_SIZE:
+        size_mb = len(content) / (1024 * 1024)
+        raise HTTPException(
+            status_code=400,
+            detail=f"File exceeds 10MB limit ({size_mb:.1f}MB uploaded). Please choose a smaller image."
+        )
+
+    # Generate collision-resistant unique filename
+    unique_filename = f"{uuid.uuid4().hex}{ext}"
+    target_path = UPLOADS_DIR / unique_filename
+
+    with open(target_path, "wb") as buffer:
+        buffer.write(content)
+
+    return {
+        "url": f"/api/uploads/{unique_filename}",
+        "filename": unique_filename,
+        "size": len(content),
+        "message": "Image successfully uploaded to private server storage"
+    }
+

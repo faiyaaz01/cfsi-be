@@ -1,6 +1,8 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from app.config import settings
 from app.database import connect_to_mongo, close_mongo_connection, db_manager
 from app.seed import seed_database
@@ -45,6 +47,12 @@ app.include_router(students_router)
 app.include_router(attendance_router)
 app.include_router(news_router)
 app.include_router(web_content_router)
+
+# Mount Local Static Media Uploads (Private Server Storage)
+uploads_dir = Path(__file__).resolve().parent.parent / "uploads"
+uploads_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/api/uploads", StaticFiles(directory=str(uploads_dir)), name="api_uploads")
+app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
 
 @app.get("/")
 def root():
