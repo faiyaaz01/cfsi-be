@@ -13,4 +13,3 @@ httpx>=0.28.0
 mongomock>=4.3.0
 mongomock-motor>=0.0.36
 certifi>=2024.7.4
-aiofiles>=24.1.0
