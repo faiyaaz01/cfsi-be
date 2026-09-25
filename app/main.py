@@ -52,6 +52,8 @@ def root():
         "institute": "Central Fire Safety Institute (CFSI), Vadodara",
         "api": "CFSI REST API",
         "database": "MongoDB",
+        "database_name": settings.MONGODB_DB_NAME,
+        "environment": settings.APP_ENV,
         "mode": "live" if not db_manager.is_mock else "in-memory (mongomock)",
         "docs": "/docs",
         "version": settings.VERSION
@@ -61,7 +63,9 @@ def root():
 def healthcheck():
     return {
         "status": "healthy",
+        "environment": settings.APP_ENV,
         "database": "mongodb",
+        "database_name": settings.MONGODB_DB_NAME,
         "is_mock": db_manager.is_mock,
         "message": "Connected to MongoDB" if not db_manager.is_mock else "Running on mongomock development engine"
     }
