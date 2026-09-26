@@ -9,7 +9,7 @@ from app.schemas.web_content import (
     TrainingDrillOut, TrainingDrillCreate, TrainingDrillUpdate,
     GalleryPhotoOut, GalleryPhotoCreate, GalleryPhotoUpdate,
     GalleryVideoOut, GalleryVideoCreate, GalleryVideoUpdate,
-    DisplaySettingsSchema
+    DisplaySettingsSchema, HomePageConfigSchema
 )
 
 router = APIRouter(prefix="/api/web", tags=["Web & Content Management"])
@@ -376,3 +376,28 @@ async def update_display_settings(
         upsert=True
     )
     return settings_in
+
+# =========================================================================
+# 6. HOMEPAGE CONFIGURATION ENDPOINTS
+# =========================================================================
+@router.get("/homepage-config", response_model=HomePageConfigSchema)
+async def get_homepage_config(db: AsyncIOMotorDatabase = Depends(get_database)):
+    doc = await db.homepage_config.find_one({"_id": "global_homepage_config"})
+    if not doc:
+        return HomePageConfigSchema()
+    return HomePageConfigSchema(**{k: v for k, v in doc.items() if k != "_id"})
+
+@router.put("/homepage-config", response_model=HomePageConfigSchema)
+async def update_homepage_config(
+    config_in: HomePageConfigSchema,
+    db: AsyncIOMotorDatabase = Depends(get_database),
+    admin: Dict[str, Any] = Depends(require_admin)
+):
+    doc_data = config_in.model_dump()
+    await db.homepage_config.update_one(
+        {"_id": "global_homepage_config"},
+        {"$set": doc_data},
+        upsert=True
+    )
+    return config_in
+
