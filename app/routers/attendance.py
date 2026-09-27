@@ -10,7 +10,7 @@ from app.database import get_database
 from app.schemas.attendance import (
     AttendanceOut, AttendanceCreate, AttendanceUpdate, AttendanceBulkCreate
 )
-from app.dependencies import get_current_user, require_staff
+from app.dependencies import get_current_user, require_staff, require_admin
 
 router = APIRouter(prefix="/api/attendance", tags=["Attendance Muster"])
 
@@ -43,6 +43,12 @@ def compute_lock_status(doc: Dict[str, Any]) -> tuple[bool, Optional[str], Optio
     Returns (is_locked, uploaded_at_iso, can_edit_until_iso).
     """
     raw_uploaded = doc.get("uploaded_at") or doc.get("uploadedAt") or doc.get("created_at") or doc.get("createdAt")
+    can_edit_until = doc.get("can_edit_until") or doc.get("canEditUntil")
+
+    # If explicitly set by admin unlock/lock
+    if "is_locked" in doc and doc["is_locked"] is not None:
+        return bool(doc["is_locked"]), str(raw_uploaded) if raw_uploaded else None, str(can_edit_until) if can_edit_until else None
+
     if not raw_uploaded:
         return False, None, None
     try:
@@ -228,7 +234,7 @@ async def create_or_upsert_attendance(
     existing = await db.attendance.find_one(query)
     if existing:
         is_locked, _, can_edit_until = compute_lock_status(existing)
-        if is_locked:
+        if is_locked and current_user.get("role") != "admin":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Attendance record is locked: cannot be modified after 24 hours of upload (expired at {can_edit_until})."
@@ -303,7 +309,7 @@ async def bulk_save_attendance(
         existing = await db.attendance.find_one(query)
         if existing:
             is_locked, _, can_edit_until = compute_lock_status(existing)
-            if is_locked:
+            if is_locked and current_user.get("role") != "admin":
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail=f"Attendance for date '{item.date}' is locked: the 24-hour editing window expired at {can_edit_until}."
@@ -376,7 +382,7 @@ async def update_attendance(
     check_leader_slot_lock(existing.get("slot"), existing.get("date"), current_user)
 
     is_locked, _, can_edit_until = compute_lock_status(existing)
-    if is_locked:
+    if is_locked and current_user.get("role") != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Attendance record is locked: cannot be modified after 24 hours of upload (expired at {can_edit_until})."
@@ -423,7 +429,7 @@ async def delete_attendance(
     check_leader_slot_lock(existing.get("slot"), existing.get("date"), current_user)
 
     is_locked, _, can_edit_until = compute_lock_status(existing)
-    if is_locked:
+    if is_locked and current_user.get("role") != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Attendance record is locked: cannot be deleted after 24 hours of upload (expired at {can_edit_until})."
@@ -461,7 +467,7 @@ async def clear_day_attendance(
     cursor = db.attendance.find(filter_q)
     async for doc in cursor:
         is_locked, _, can_edit_until = compute_lock_status(doc)
-        if is_locked:
+        if is_locked and current_user.get("role") != "admin":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Attendance for date '{date}' is locked: cannot be cleared after 24 hours of upload (expired at {can_edit_until})."
@@ -505,4 +511,137 @@ async def clear_all_attendance(
     })
 
     return {"deleted": res.deleted_count}
+
+@router.post("/day/{date}/unlock")
+async def unlock_day_attendance(
+    date: str,
+    db: AsyncIOMotorDatabase = Depends(get_database),
+    current_user: Dict[str, Any] = Depends(require_admin)
+):
+    """
+    Admin endpoint to unlock attendance for a specific date.
+    Resets the 24-hour editing window, sets is_locked=False, and broadcasts update.
+    """
+    clean_date = date.strip()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    new_deadline = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+    admin_name = current_user.get("full_name") or current_user.get("username")
+
+    await db.attendance.update_many(
+        {"date": clean_date},
+        {
+            "$set": {
+                "is_locked": False,
+                "uploaded_at": now_iso,
+                "can_edit_until": new_deadline,
+                "unlocked_by": admin_name,
+                "unlocked_at": now_iso
+            }
+        }
+    )
+
+    await db.attendance_locks.update_one(
+        {"date": clean_date},
+        {
+            "$set": {
+                "date": clean_date,
+                "locked": False,
+                "unlocked_by": admin_name,
+                "unlocked_at": now_iso,
+                "can_edit_until": new_deadline
+            }
+        },
+        upsert=True
+    )
+
+    await broadcaster.broadcast({
+        "event": "attendance_lock_changed",
+        "date": clean_date,
+        "locked": False,
+        "timestamp": now_iso
+    })
+
+    return {
+        "date": clean_date,
+        "locked": False,
+        "can_edit_until": new_deadline,
+        "message": f"Attendance for {clean_date} has been unlocked by Administrator."
+    }
+
+@router.post("/day/{date}/lock")
+async def lock_day_attendance(
+    date: str,
+    db: AsyncIOMotorDatabase = Depends(get_database),
+    current_user: Dict[str, Any] = Depends(require_admin)
+):
+    """
+    Admin endpoint to lock attendance for a specific date immediately.
+    """
+    clean_date = date.strip()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    admin_name = current_user.get("full_name") or current_user.get("username")
+
+    await db.attendance.update_many(
+        {"date": clean_date},
+        {
+            "$set": {
+                "is_locked": True,
+                "can_edit_until": now_iso,
+                "locked_by": admin_name,
+                "locked_at": now_iso
+            }
+        }
+    )
+
+    await db.attendance_locks.update_one(
+        {"date": clean_date},
+        {
+            "$set": {
+                "date": clean_date,
+                "locked": True,
+                "locked_by": admin_name,
+                "locked_at": now_iso,
+                "can_edit_until": now_iso
+            }
+        },
+        upsert=True
+    )
+
+    await broadcaster.broadcast({
+        "event": "attendance_lock_changed",
+        "date": clean_date,
+        "locked": True,
+        "timestamp": now_iso
+    })
+
+    return {
+        "date": clean_date,
+        "locked": True,
+        "message": f"Attendance for {clean_date} has been locked by Administrator."
+    }
+
+@router.get("/day/{date}/lock-status")
+async def get_day_lock_status(
+    date: str,
+    db: AsyncIOMotorDatabase = Depends(get_database),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    clean_date = date.strip()
+    lock_doc = await db.attendance_locks.find_one({"date": clean_date})
+    if lock_doc:
+        return {
+            "date": clean_date,
+            "locked": bool(lock_doc.get("locked")),
+            "can_edit_until": lock_doc.get("can_edit_until")
+        }
+    sample = await db.attendance.find_one({"date": clean_date})
+    if sample:
+        is_locked, uploaded_at, can_edit_until = compute_lock_status(sample)
+        return {
+            "date": clean_date,
+            "locked": is_locked,
+            "uploaded_at": uploaded_at,
+            "can_edit_until": can_edit_until
+        }
+    return {"date": clean_date, "locked": False}
 
