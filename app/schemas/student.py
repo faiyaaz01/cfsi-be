@@ -50,8 +50,9 @@ class StudentProfileUpdate(BaseModel):
     mother_name: Optional[str] = Field(None, alias="motherName")
     father_name: Optional[str] = Field(None, alias="fatherName")
     present_address: Optional[str] = Field(None, alias="presentAddress")
-    student_phone: str = Field(..., alias="studentPhone", min_length=1)  # MANDATORY
+    student_phone: Optional[str] = Field(None, alias="studentPhone")
     father_phone: Optional[str] = Field(None, alias="fatherPhone")
+
     mother_phone: Optional[str] = Field(None, alias="motherPhone")
     category: Optional[str] = Field(None, alias="category")
     aadhar_card: Optional[str] = Field(None, alias="aadharCard")

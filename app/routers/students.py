@@ -272,7 +272,7 @@ async def update_my_profile(
     if payload.mode:
         update_fields["mode"] = payload.mode.strip().upper()
     if payload.photo_url is not None:
-        update_fields["photo_url"] = payload.photo_url
+        update_fields["photo_url"] = payload.photo_url.strip() if payload.photo_url else None
 
     await db.students.update_one({"_id": doc["_id"]}, {"$set": update_fields})
     
@@ -285,7 +285,7 @@ async def update_my_profile(
     if update_fields.get("email"):
         user_updates["email"] = update_fields["email"]
     if payload.photo_url is not None:
-        user_updates["photo_url"] = payload.photo_url
+        user_updates["photo_url"] = update_fields["photo_url"]
     await db.users.update_one({"_id": current_user["_id"]}, {"$set": user_updates})
 
     updated_doc = await db.students.find_one({"_id": doc["_id"]})
