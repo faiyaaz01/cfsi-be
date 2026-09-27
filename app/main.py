@@ -9,7 +9,8 @@ from app.routers import (
     students_router,
     attendance_router,
     news_router,
-    web_content_router
+    web_content_router,
+    seo_router
 )
 
 @asynccontextmanager
@@ -45,6 +46,7 @@ app.include_router(students_router)
 app.include_router(attendance_router)
 app.include_router(news_router)
 app.include_router(web_content_router)
+app.include_router(seo_router)
 
 @app.get("/")
 def root():
