@@ -41,7 +41,10 @@ async def get_current_user_optional(
 ) -> Optional[Dict[str, Any]]:
     if not token:
         return None
-    return await get_current_user(token, db)
+    try:
+        return await get_current_user(token, db)
+    except HTTPException:
+        return None
 
 async def require_admin(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     if current_user.get("role") != "admin":

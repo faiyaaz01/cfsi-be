@@ -202,17 +202,19 @@ class HomePageConfigSchema(BaseModel):
     showNewsTicker: bool = True
     newsSectionTitle: str = "Latest News & Events"
     newsSectionSubtitle: str = "Stay informed with real-time updates from our Vadodara campus, drills, and admissions."
+    newsDisplayMode: Optional[str] = "all"
     featuredNewsIds: List[str] = Field(default_factory=list)
 
     # 4. Featured Courses
     showCoursesSection: bool = True
     coursesSectionTitle: str = "OUR COURSES"
     coursesSectionSubtitle: str = "Government-recognized fire engineering and industrial safety certifications designed for high-demand municipal and corporate careers."
+    coursesDisplayMode: Optional[str] = "all"
     featuredCourseIds: List[str] = Field(default_factory=list)
 
     # 5. Student Portal Quick Banner
     showPortalBanner: bool = True
-    portalBannerTitle: str = "Check Live Drill Attendance & Training Records"
+    portalBannerTitle: str = "Check Live Attendance"
     portalBannerSubtitle: str = "Students can log in to view real-time ground drill muster records, breathing apparatus evaluations, and official training logs."
     portalBannerBadge: str = "Student Academic Portal"
 
@@ -222,13 +224,13 @@ class HomePageConfigSchema(BaseModel):
         StatItemConfig(value=500, suffix="+", label="Students Trained", sublabel="Serving across India"),
         StatItemConfig(value=4, suffix="", label="Govt. Affiliated Courses", sublabel="Certificate to Diploma"),
         StatItemConfig(value=15, suffix="+", label="Years Experience", sublabel="In Fire Safety Training"),
-        StatItemConfig(value=10, suffix="+", label="Cities Across India", sublabel="Alumni Placement Network")
     ])
 
     # 7. Ground Training & Drills
     showTrainingSection: bool = True
     trainingSectionTitle: str = "HANDS-ON GROUND TRAINING"
     trainingSectionSubtitle: str = "Tactical simulations engineered to build muscle memory, fearless situational awareness, and split-second emergency decision making."
+    drillsDisplayMode: Optional[str] = "all"
     featuredDrillIds: List[str] = Field(default_factory=list)
 
     # 8. Why Choose Us (Core Pillars)
