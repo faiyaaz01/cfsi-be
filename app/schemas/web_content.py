@@ -17,6 +17,7 @@ class CourseBase(BaseModel):
     physical_requirements: List[str] = Field(default_factory=list, alias="physicalRequirements")
     career_opportunities: List[str] = Field(default_factory=list, alias="careerOpportunities")
     certification_body: str = Field("", alias="certificationBody")
+    order: Optional[int] = 0
 
     class Config:
         populate_by_name = True
@@ -40,6 +41,7 @@ class CourseUpdate(BaseModel):
     physical_requirements: Optional[List[str]] = Field(None, alias="physicalRequirements")
     career_opportunities: Optional[List[str]] = Field(None, alias="careerOpportunities")
     certification_body: Optional[str] = Field(None, alias="certificationBody")
+    order: Optional[int] = None
 
     class Config:
         populate_by_name = True
@@ -56,6 +58,7 @@ class TrainingDrillBase(BaseModel):
     description: str = ""
     highlights: List[str] = []
     equipment_used: List[str] = Field(default_factory=list, alias="equipmentUsed")
+    order: Optional[int] = 0
 
     class Config:
         populate_by_name = True
@@ -72,6 +75,7 @@ class TrainingDrillUpdate(BaseModel):
     description: Optional[str] = None
     highlights: Optional[List[str]] = None
     equipment_used: Optional[List[str]] = Field(None, alias="equipmentUsed")
+    order: Optional[int] = None
 
     class Config:
         populate_by_name = True
@@ -86,6 +90,7 @@ class GalleryPhotoBase(BaseModel):
     image_url: str = Field(..., alias="imageUrl")
     caption: str = ""
     date: str = ""
+    order: Optional[int] = 0
 
     class Config:
         populate_by_name = True
@@ -100,6 +105,7 @@ class GalleryPhotoUpdate(BaseModel):
     image_url: Optional[str] = Field(None, alias="imageUrl")
     caption: Optional[str] = None
     date: Optional[str] = None
+    order: Optional[int] = None
 
     class Config:
         populate_by_name = True
@@ -114,6 +120,7 @@ class GalleryVideoBase(BaseModel):
     category: str = "Practical Drill"
     duration: str = "3:00"
     description: str = ""
+    order: Optional[int] = 0
 
     class Config:
         populate_by_name = True
@@ -128,12 +135,21 @@ class GalleryVideoUpdate(BaseModel):
     category: Optional[str] = None
     duration: Optional[str] = None
     description: Optional[str] = None
+    order: Optional[int] = None
 
     class Config:
         populate_by_name = True
 
 class GalleryVideoOut(GalleryVideoBase):
     id: str
+
+class ReorderItem(BaseModel):
+    id: str
+    order: int
+
+class ReorderRequest(BaseModel):
+    ids: Optional[List[str]] = None
+    items: Optional[List[ReorderItem]] = None
 
 class DisplaySettingsSchema(BaseModel):
     heroNoticeBanner: bool = True

@@ -9,7 +9,8 @@ from app.schemas.web_content import (
     TrainingDrillOut, TrainingDrillCreate, TrainingDrillUpdate,
     GalleryPhotoOut, GalleryPhotoCreate, GalleryPhotoUpdate,
     GalleryVideoOut, GalleryVideoCreate, GalleryVideoUpdate,
-    DisplaySettingsSchema, HomePageConfigSchema
+    DisplaySettingsSchema, HomePageConfigSchema,
+    ReorderRequest
 )
 
 router = APIRouter(prefix="/api/web", tags=["Web & Content Management"])
@@ -33,16 +34,38 @@ def doc_to_course_out(doc: Dict[str, Any]) -> CourseOut:
         syllabus=doc.get("syllabus", []),
         physicalRequirements=doc.get("physical_requirements", doc.get("physicalRequirements", [])),
         careerOpportunities=doc.get("career_opportunities", doc.get("careerOpportunities", [])),
-        certificationBody=doc.get("certification_body", doc.get("certificationBody", ""))
+        certificationBody=doc.get("certification_body", doc.get("certificationBody", "")),
+        order=doc.get("order", 0)
     )
 
 @router.get("/courses", response_model=List[CourseOut])
 async def get_courses(db: AsyncIOMotorDatabase = Depends(get_database)):
-    cursor = db.courses.find()
+    cursor = db.courses.find().sort([("order", 1), ("title", 1)])
     courses = []
     async for doc in cursor:
         courses.append(doc_to_course_out(doc))
     return courses
+
+@router.put("/courses/reorder", status_code=status.HTTP_200_OK)
+async def reorder_courses(
+    reorder_in: ReorderRequest,
+    db: AsyncIOMotorDatabase = Depends(get_database),
+    admin: Dict[str, Any] = Depends(require_admin)
+):
+    """Admin endpoint to reorder courses manually."""
+    if reorder_in.ids:
+        for idx, c_id in enumerate(reorder_in.ids):
+            await db.courses.update_one(
+                {"$or": [{"_id": c_id}, {"id": c_id}]},
+                {"$set": {"order": idx}}
+            )
+    elif reorder_in.items:
+        for item in reorder_in.items:
+            await db.courses.update_one(
+                {"$or": [{"_id": item.id}, {"id": item.id}]},
+                {"$set": {"order": item.order}}
+            )
+    return {"status": "success", "message": "Courses reordered successfully"}
 
 @router.post("/courses", response_model=CourseOut, status_code=status.HTTP_201_CREATED)
 async def create_course(
@@ -51,6 +74,8 @@ async def create_course(
     admin: Dict[str, Any] = Depends(require_admin)
 ):
     course_id = course_in.id or f"cfs-{uuid.uuid4().hex[:8]}"
+    curr_count = await db.courses.count_documents({})
+    order_val = course_in.order if (course_in.order is not None and course_in.order != 0) else curr_count
     doc = {
         "_id": course_id,
         "id": course_id,
@@ -67,7 +92,8 @@ async def create_course(
         "syllabus": course_in.syllabus,
         "physical_requirements": course_in.physical_requirements,
         "career_opportunities": course_in.career_opportunities,
-        "certification_body": course_in.certification_body
+        "certification_body": course_in.certification_body,
+        "order": order_val
     }
     await db.courses.insert_one(doc)
     return doc_to_course_out(doc)
@@ -123,16 +149,38 @@ def doc_to_drill_out(doc: Dict[str, Any]) -> TrainingDrillOut:
         image=doc.get("image", ""),
         description=doc.get("description", ""),
         highlights=doc.get("highlights", []),
-        equipmentUsed=doc.get("equipment_used", doc.get("equipmentUsed", []))
+        equipmentUsed=doc.get("equipment_used", doc.get("equipmentUsed", [])),
+        order=doc.get("order", 0)
     )
 
 @router.get("/drills", response_model=List[TrainingDrillOut])
 async def get_drills(db: AsyncIOMotorDatabase = Depends(get_database)):
-    cursor = db.training_drills.find()
+    cursor = db.training_drills.find().sort([("order", 1), ("title", 1)])
     drills = []
     async for doc in cursor:
         drills.append(doc_to_drill_out(doc))
     return drills
+
+@router.put("/drills/reorder", status_code=status.HTTP_200_OK)
+async def reorder_drills(
+    reorder_in: ReorderRequest,
+    db: AsyncIOMotorDatabase = Depends(get_database),
+    admin: Dict[str, Any] = Depends(require_admin)
+):
+    """Admin endpoint to reorder training drills manually."""
+    if reorder_in.ids:
+        for idx, d_id in enumerate(reorder_in.ids):
+            await db.training_drills.update_one(
+                {"$or": [{"_id": d_id}, {"id": d_id}]},
+                {"$set": {"order": idx}}
+            )
+    elif reorder_in.items:
+        for item in reorder_in.items:
+            await db.training_drills.update_one(
+                {"$or": [{"_id": item.id}, {"id": item.id}]},
+                {"$set": {"order": item.order}}
+            )
+    return {"status": "success", "message": "Training drills reordered successfully"}
 
 @router.post("/drills", response_model=TrainingDrillOut, status_code=status.HTTP_201_CREATED)
 async def create_drill(
@@ -141,6 +189,8 @@ async def create_drill(
     admin: Dict[str, Any] = Depends(require_admin)
 ):
     drill_id = drill_in.id or f"tr-{uuid.uuid4().hex[:8]}"
+    curr_count = await db.training_drills.count_documents({})
+    order_val = drill_in.order if (drill_in.order is not None and drill_in.order != 0) else curr_count
     doc = {
         "_id": drill_id,
         "id": drill_id,
@@ -150,7 +200,8 @@ async def create_drill(
         "image": drill_in.image,
         "description": drill_in.description,
         "highlights": drill_in.highlights,
-        "equipment_used": drill_in.equipment_used
+        "equipment_used": drill_in.equipment_used,
+        "order": order_val
     }
     await db.training_drills.insert_one(doc)
     return doc_to_drill_out(doc)
@@ -204,16 +255,38 @@ def doc_to_photo_out(doc: Dict[str, Any]) -> GalleryPhotoOut:
         category=doc.get("category", "Training"),
         imageUrl=doc.get("image_url", doc.get("imageUrl", "")),
         caption=doc.get("caption", ""),
-        date=doc.get("date", "")
+        date=doc.get("date", ""),
+        order=doc.get("order", 0)
     )
 
 @router.get("/photos", response_model=List[GalleryPhotoOut])
 async def get_photos(db: AsyncIOMotorDatabase = Depends(get_database)):
-    cursor = db.gallery_photos.find()
+    cursor = db.gallery_photos.find().sort([("order", 1), ("date", -1)])
     photos = []
     async for doc in cursor:
         photos.append(doc_to_photo_out(doc))
     return photos
+
+@router.put("/photos/reorder", status_code=status.HTTP_200_OK)
+async def reorder_photos(
+    reorder_in: ReorderRequest,
+    db: AsyncIOMotorDatabase = Depends(get_database),
+    admin: Dict[str, Any] = Depends(require_admin)
+):
+    """Admin endpoint to reorder gallery photos manually."""
+    if reorder_in.ids:
+        for idx, p_id in enumerate(reorder_in.ids):
+            await db.gallery_photos.update_one(
+                {"$or": [{"_id": p_id}, {"id": p_id}]},
+                {"$set": {"order": idx}}
+            )
+    elif reorder_in.items:
+        for item in reorder_in.items:
+            await db.gallery_photos.update_one(
+                {"$or": [{"_id": item.id}, {"id": item.id}]},
+                {"$set": {"order": item.order}}
+            )
+    return {"status": "success", "message": "Gallery photos reordered successfully"}
 
 @router.post("/photos", response_model=GalleryPhotoOut, status_code=status.HTTP_201_CREATED)
 async def create_photo(
@@ -222,6 +295,8 @@ async def create_photo(
     admin: Dict[str, Any] = Depends(require_admin)
 ):
     photo_id = photo_in.id or f"img-{uuid.uuid4().hex[:8]}"
+    curr_count = await db.gallery_photos.count_documents({})
+    order_val = photo_in.order if (photo_in.order is not None and photo_in.order != 0) else curr_count
     doc = {
         "_id": photo_id,
         "id": photo_id,
@@ -229,7 +304,8 @@ async def create_photo(
         "category": photo_in.category,
         "image_url": photo_in.image_url,
         "caption": photo_in.caption,
-        "date": photo_in.date
+        "date": photo_in.date,
+        "order": order_val
     }
     await db.gallery_photos.insert_one(doc)
     return doc_to_photo_out(doc)
@@ -283,16 +359,38 @@ def doc_to_video_out(doc: Dict[str, Any]) -> GalleryVideoOut:
         title=doc.get("title", ""),
         category=doc.get("category", "Practical Drill"),
         duration=doc.get("duration", "3:00"),
-        description=doc.get("description", "")
+        description=doc.get("description", ""),
+        order=doc.get("order", 0)
     )
 
 @router.get("/videos", response_model=List[GalleryVideoOut])
 async def get_videos(db: AsyncIOMotorDatabase = Depends(get_database)):
-    cursor = db.gallery_videos.find()
+    cursor = db.gallery_videos.find().sort([("order", 1), ("title", 1)])
     videos = []
     async for doc in cursor:
         videos.append(doc_to_video_out(doc))
     return videos
+
+@router.put("/videos/reorder", status_code=status.HTTP_200_OK)
+async def reorder_videos(
+    reorder_in: ReorderRequest,
+    db: AsyncIOMotorDatabase = Depends(get_database),
+    admin: Dict[str, Any] = Depends(require_admin)
+):
+    """Admin endpoint to reorder gallery videos manually."""
+    if reorder_in.ids:
+        for idx, v_id in enumerate(reorder_in.ids):
+            await db.gallery_videos.update_one(
+                {"$or": [{"_id": v_id}, {"id": v_id}]},
+                {"$set": {"order": idx}}
+            )
+    elif reorder_in.items:
+        for item in reorder_in.items:
+            await db.gallery_videos.update_one(
+                {"$or": [{"_id": item.id}, {"id": item.id}]},
+                {"$set": {"order": item.order}}
+            )
+    return {"status": "success", "message": "Gallery videos reordered successfully"}
 
 @router.post("/videos", response_model=GalleryVideoOut, status_code=status.HTTP_201_CREATED)
 async def create_video(
@@ -301,6 +399,8 @@ async def create_video(
     admin: Dict[str, Any] = Depends(require_admin)
 ):
     video_id = video_in.id or f"vid-{uuid.uuid4().hex[:8]}"
+    curr_count = await db.gallery_videos.count_documents({})
+    order_val = video_in.order if (video_in.order is not None and video_in.order != 0) else curr_count
     doc = {
         "_id": video_id,
         "id": video_id,
@@ -308,7 +408,8 @@ async def create_video(
         "title": video_in.title,
         "category": video_in.category,
         "duration": video_in.duration,
-        "description": video_in.description
+        "description": video_in.description,
+        "order": order_val
     }
     await db.gallery_videos.insert_one(doc)
     return doc_to_video_out(doc)

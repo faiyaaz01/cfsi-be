@@ -11,6 +11,7 @@ class NewsBase(BaseModel):
     image_url: Optional[str] = Field(None, alias="imageUrl")
     author: str
     is_pinned: bool = Field(False, alias="isPinned")
+    order: Optional[int] = 0
     created_at: Optional[str] = Field(None, alias="createdAt")
 
     class Config:
@@ -29,9 +30,14 @@ class NewsUpdate(BaseModel):
     image_url: Optional[str] = Field(None, alias="imageUrl")
     author: Optional[str] = None
     is_pinned: Optional[bool] = Field(None, alias="isPinned")
+    order: Optional[int] = None
 
     class Config:
         populate_by_name = True
 
 class NewsOut(NewsBase):
     id: str
+
+class NewsReorderRequest(BaseModel):
+    ids: Optional[list[str]] = None
+    items: Optional[list[dict]] = None

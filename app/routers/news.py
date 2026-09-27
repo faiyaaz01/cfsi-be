@@ -4,7 +4,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.database import get_database
-from app.schemas.news import NewsOut, NewsCreate, NewsUpdate
+from app.schemas.news import NewsOut, NewsCreate, NewsUpdate, NewsReorderRequest
 from app.dependencies import require_admin
 
 router = APIRouter(prefix="/api/news", tags=["News & Bulletins"])
@@ -20,17 +20,39 @@ def doc_to_news_out(doc: Dict[str, Any]) -> NewsOut:
         image_url=doc.get("image_url"),
         author=doc["author"],
         is_pinned=bool(doc.get("is_pinned", False)),
+        order=doc.get("order", 0),
         created_at=doc.get("created_at")
     )
 
 @router.get("", response_model=List[NewsOut])
 async def get_all_news(db: AsyncIOMotorDatabase = Depends(get_database)):
     """Fetch all institute news bulletins and circulars from MongoDB."""
-    cursor = db.news_posts.find().sort([("is_pinned", -1), ("date", -1)])
+    cursor = db.news_posts.find().sort([("is_pinned", -1), ("order", 1), ("date", -1)])
     posts = []
     async for doc in cursor:
         posts.append(doc_to_news_out(doc))
     return posts
+
+@router.put("/reorder", status_code=status.HTTP_200_OK)
+async def reorder_news(
+    reorder_in: NewsReorderRequest,
+    db: AsyncIOMotorDatabase = Depends(get_database),
+    current_user: Dict[str, Any] = Depends(require_admin)
+):
+    """Admin endpoint to reorder news bulletins manually."""
+    if reorder_in.ids:
+        for idx, n_id in enumerate(reorder_in.ids):
+            await db.news_posts.update_one(
+                {"$or": [{"_id": n_id}, {"id": n_id}]},
+                {"$set": {"order": idx}}
+            )
+    elif reorder_in.items:
+        for item in reorder_in.items:
+            await db.news_posts.update_one(
+                {"$or": [{"_id": item.get("id")}, {"id": item.get("id")}]},
+                {"$set": {"order": item.get("order", 0)}}
+            )
+    return {"status": "success", "message": "News bulletins reordered successfully"}
 
 @router.get("/{news_id}", response_model=NewsOut)
 async def get_news_detail(news_id: str, db: AsyncIOMotorDatabase = Depends(get_database)):
@@ -49,6 +71,8 @@ async def create_news(
     """Publish a new institute announcement in MongoDB (Admin only)."""
     new_id = news_in.id or f"news-{uuid.uuid4().hex[:8]}"
     created_at = news_in.created_at or datetime.now(timezone.utc).isoformat()
+    curr_count = await db.news_posts.count_documents({})
+    order_val = news_in.order if (news_in.order is not None and news_in.order != 0) else curr_count
     
     doc = {
         "_id": new_id,
@@ -61,6 +85,7 @@ async def create_news(
         "image_url": news_in.image_url,
         "author": news_in.author,
         "is_pinned": news_in.is_pinned,
+        "order": order_val,
         "created_at": created_at
     }
     await db.news_posts.insert_one(doc)
@@ -91,6 +116,8 @@ async def update_news(
         update_fields["author"] = news_update.author
     if news_update.is_pinned is not None:
         update_fields["is_pinned"] = news_update.is_pinned
+    if news_update.order is not None:
+        update_fields["order"] = news_update.order
 
     doc = await db.news_posts.find_one_and_update(
         {"$or": [{"_id": news_id}, {"id": news_id}]},
