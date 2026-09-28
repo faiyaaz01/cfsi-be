@@ -1,6 +1,6 @@
 from typing import List, Dict, Any, Optional
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.database import get_database
 from app.dependencies import require_admin
@@ -14,6 +14,10 @@ from app.schemas.web_content import (
 )
 
 router = APIRouter(prefix="/api/web", tags=["Web & Content Management"])
+
+def set_edge_cache(response: Response, s_maxage: int = 120, swr: int = 300):
+    """Adds CDN Edge caching headers for high-speed delivery via Vercel Edge Network."""
+    response.headers["Cache-Control"] = f"public, max-age=60, s-maxage={s_maxage}, stale-while-revalidate={swr}"
 
 # =========================================================================
 # 1. COURSES ENDPOINTS
@@ -39,7 +43,8 @@ def doc_to_course_out(doc: Dict[str, Any]) -> CourseOut:
     )
 
 @router.get("/courses", response_model=List[CourseOut])
-async def get_courses(db: AsyncIOMotorDatabase = Depends(get_database)):
+async def get_courses(response: Response, db: AsyncIOMotorDatabase = Depends(get_database)):
+    set_edge_cache(response)
     cursor = db.courses.find().sort([("order", 1), ("title", 1)])
     courses = []
     async for doc in cursor:
@@ -154,7 +159,8 @@ def doc_to_drill_out(doc: Dict[str, Any]) -> TrainingDrillOut:
     )
 
 @router.get("/drills", response_model=List[TrainingDrillOut])
-async def get_drills(db: AsyncIOMotorDatabase = Depends(get_database)):
+async def get_drills(response: Response, db: AsyncIOMotorDatabase = Depends(get_database)):
+    set_edge_cache(response)
     cursor = db.training_drills.find().sort([("order", 1), ("title", 1)])
     drills = []
     async for doc in cursor:
@@ -260,7 +266,8 @@ def doc_to_photo_out(doc: Dict[str, Any]) -> GalleryPhotoOut:
     )
 
 @router.get("/photos", response_model=List[GalleryPhotoOut])
-async def get_photos(db: AsyncIOMotorDatabase = Depends(get_database)):
+async def get_photos(response: Response, db: AsyncIOMotorDatabase = Depends(get_database)):
+    set_edge_cache(response)
     cursor = db.gallery_photos.find().sort([("order", 1), ("date", -1)])
     photos = []
     async for doc in cursor:
@@ -364,7 +371,8 @@ def doc_to_video_out(doc: Dict[str, Any]) -> GalleryVideoOut:
     )
 
 @router.get("/videos", response_model=List[GalleryVideoOut])
-async def get_videos(db: AsyncIOMotorDatabase = Depends(get_database)):
+async def get_videos(response: Response, db: AsyncIOMotorDatabase = Depends(get_database)):
+    set_edge_cache(response)
     cursor = db.gallery_videos.find().sort([("order", 1), ("title", 1)])
     videos = []
     async for doc in cursor:
@@ -457,7 +465,8 @@ async def clear_all_videos(
 # 5. DISPLAY & VISIBILITY SETTINGS ENDPOINTS
 # =========================================================================
 @router.get("/display-settings", response_model=DisplaySettingsSchema)
-async def get_display_settings(db: AsyncIOMotorDatabase = Depends(get_database)):
+async def get_display_settings(response: Response, db: AsyncIOMotorDatabase = Depends(get_database)):
+    set_edge_cache(response)
     doc = await db.display_settings.find_one({"_id": "global_display_settings"})
     if not doc:
         default_settings = DisplaySettingsSchema()
@@ -482,7 +491,8 @@ async def update_display_settings(
 # 6. HOMEPAGE CONFIGURATION ENDPOINTS
 # =========================================================================
 @router.get("/homepage-config", response_model=HomePageConfigSchema)
-async def get_homepage_config(db: AsyncIOMotorDatabase = Depends(get_database)):
+async def get_homepage_config(response: Response, db: AsyncIOMotorDatabase = Depends(get_database)):
+    set_edge_cache(response)
     doc = await db.homepage_config.find_one({"_id": "global_homepage_config"})
     if not doc:
         return HomePageConfigSchema()

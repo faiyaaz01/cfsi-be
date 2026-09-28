@@ -8,8 +8,32 @@ async def seed_database():
     db = get_database()
 
     try:
-        # 1. Seed Institutional Administrator Account (Password hashed with bcrypt)
         from app.config import settings
+
+        # Fast-path for serverless cold starts: check if initialization already ran
+        meta = await db.system_meta.find_one({"_id": "initial_seed_done"})
+        if meta and meta.get("initialized"):
+            # Ensure admin and teacher accounts exist (fast single-document checks)
+            if settings.BOOTSTRAP_ADMIN_PASSWORD and not await db.users.find_one({"role": "admin"}):
+                await db.users.insert_one({
+                    "_id": "user-admin", "username": settings.BOOTSTRAP_ADMIN_USERNAME,
+                    "password_hash": hash_password(settings.BOOTSTRAP_ADMIN_PASSWORD),
+                    "role": "admin", "full_name": "CFSI Administrator", "is_active": True,
+                    "token_version": 0,
+                })
+            if not await db.users.find_one({"role": "teacher"}):
+                await db.users.insert_one({
+                    "_id": "user-teacher",
+                    "username": "teacher@cfsi.com",
+                    "password_hash": hash_password("Teacher@1"),
+                    "role": "teacher",
+                    "full_name": "Senior Safety Instructor",
+                    "is_active": True,
+                    "token_version": 0,
+                })
+            return  # Skip all 15 legacy delete/cleanup queries on subsequent cold starts!
+
+        # 1. Seed Institutional Administrator Account (Password hashed with bcrypt)
         if settings.BOOTSTRAP_ADMIN_PASSWORD and not await db.users.find_one({"role": "admin"}):
             await db.users.insert_one({
                 "_id": "user-admin", "username": settings.BOOTSTRAP_ADMIN_USERNAME,

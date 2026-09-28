@@ -70,7 +70,11 @@ async def setup_indexes():
         await db.users.create_index("username", unique=True)
         await db.students.create_index("id", unique=True)
         await db.students.create_index("roll_no")
+        await db.students.create_index("course")
         await db.attendance.create_index([("student_id", 1), ("date", 1), ("slot", 1)])
+        await db.attendance.create_index([("date", -1), ("slot", 1)])
+        await db.attendance.create_index([("date", 1), ("course", 1)])
+        await db.attendance_locks.create_index("date", unique=True)
         await db.news_posts.create_index("date")
     except Exception as e:
         logger.warning(f"Index creation notice: {e}")

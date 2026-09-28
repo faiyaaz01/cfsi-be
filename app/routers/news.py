@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.database import get_database
 from app.schemas.news import NewsOut, NewsCreate, NewsUpdate, NewsReorderRequest
@@ -25,8 +25,9 @@ def doc_to_news_out(doc: Dict[str, Any]) -> NewsOut:
     )
 
 @router.get("", response_model=List[NewsOut])
-async def get_all_news(db: AsyncIOMotorDatabase = Depends(get_database)):
-    """Fetch all institute news bulletins and circulars from MongoDB."""
+async def get_all_news(response: Response, db: AsyncIOMotorDatabase = Depends(get_database)):
+    """Fetch all institute news bulletins and circulars from MongoDB with Edge CDN caching."""
+    response.headers["Cache-Control"] = "public, max-age=60, s-maxage=120, stale-while-revalidate=300"
     cursor = db.news_posts.find().sort([("is_pinned", -1), ("order", 1), ("date", -1)])
     posts = []
     async for doc in cursor:

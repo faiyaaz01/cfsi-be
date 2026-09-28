@@ -10,6 +10,7 @@ from app.database import get_database
 from app.schemas.attendance import (
     AttendanceOut, AttendanceCreate, AttendanceUpdate, AttendanceBulkCreate
 )
+from pymongo import UpdateOne
 from app.dependencies import get_current_user, require_staff, require_admin
 
 router = APIRouter(prefix="/api/attendance", tags=["Attendance Muster"])
@@ -37,18 +38,50 @@ class AttendanceBroadcaster:
 
 broadcaster = AttendanceBroadcaster()
 
+def get_ist_now() -> datetime:
+    """Returns the current datetime in Indian Standard Time (UTC+5:30)."""
+    ist_tz = timezone(timedelta(hours=5, minutes=30))
+    return datetime.now(ist_tz)
+
+def compute_slot1_start_and_deadline_ist(date_str: str) -> tuple[datetime, datetime]:
+    """
+    Given a date string 'YYYY-MM-DD', returns (slot1_start_ist, lock_deadline_ist).
+    - Slot 1 start time is 08:00:00 AM IST on date_str.
+    - Lock deadline is strictly 48 hours from Slot 1 start (08:00 AM IST on date_str + 2 days).
+    """
+    ist_tz = timezone(timedelta(hours=5, minutes=30))
+    parts = [int(p) for p in str(date_str).strip().split("-")]
+    if len(parts) != 3:
+        raise ValueError(f"Invalid date format: {date_str}")
+    slot1_start = datetime(parts[0], parts[1], parts[2], 8, 0, 0, tzinfo=ist_tz)
+    lock_deadline = slot1_start + timedelta(hours=48)
+    return slot1_start, lock_deadline
+
 def compute_lock_status(doc: Dict[str, Any]) -> tuple[bool, Optional[str], Optional[str]]:
     """
-    Computes whether an attendance record is locked based on the 24-hour editing window.
+    Computes whether an attendance record is locked based on the 48-hour editing window.
     Returns (is_locked, uploaded_at_iso, can_edit_until_iso).
     """
     raw_uploaded = doc.get("uploaded_at") or doc.get("uploadedAt") or doc.get("created_at") or doc.get("createdAt")
     can_edit_until = doc.get("can_edit_until") or doc.get("canEditUntil")
+    doc_date = doc.get("date")
 
     # If explicitly set by admin unlock/lock
     if "is_locked" in doc and doc["is_locked"] is not None:
         return bool(doc["is_locked"]), str(raw_uploaded) if raw_uploaded else None, str(can_edit_until) if can_edit_until else None
 
+    # Priority 1: Check date-based 48-hour window from Slot 1 (08:00 AM IST)
+    if doc_date:
+        try:
+            slot1_start, deadline_ist = compute_slot1_start_and_deadline_ist(doc_date)
+            now_ist = get_ist_now()
+            # If past 48h deadline or before Slot 1 start
+            is_locked = now_ist > deadline_ist or now_ist < slot1_start
+            return is_locked, str(raw_uploaded) if raw_uploaded else slot1_start.isoformat(), deadline_ist.isoformat()
+        except Exception:
+            pass
+
+    # Priority 2: Fallback to uploaded timestamp + 48 hours
     if not raw_uploaded:
         return False, None, None
     try:
@@ -58,7 +91,7 @@ def compute_lock_status(doc: Dict[str, Any]) -> tuple[bool, Optional[str], Optio
         dt = datetime.fromisoformat(clean_str)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        deadline = dt + timedelta(hours=24)
+        deadline = dt + timedelta(hours=48)
         now = datetime.now(timezone.utc)
         is_locked = now > deadline
         return is_locked, dt.isoformat(), deadline.isoformat()
@@ -148,6 +181,61 @@ def check_leader_slot_lock(slot: str, date_str: str, current_user: Dict[str, Any
             detail=f"{label} attendance is locked for leaders. The allowed marking window closed at {cutoff}."
         )
 
+async def check_teacher_attendance_lock(date_str: str, current_user: Dict[str, Any], db: AsyncIOMotorDatabase):
+    """
+    Enforces the 48-hour attendance rule for teachers:
+    1. Attendance for a date unlocks at Slot 1 start (08:00 AM IST of that date).
+    2. Teachers can view and edit attendance for 48 hours from Slot 1 start.
+    3. After 48 hours, attendance is strictly locked for teachers.
+    4. Admin can bypass or explicitly unlock/lock dates.
+    """
+    if current_user.get("role") != "teacher":
+        return
+
+    clean_date = str(date_str).strip()
+    now_ist = get_ist_now()
+    ist_tz = timezone(timedelta(hours=5, minutes=30))
+
+    # Check explicit admin lock/unlock in attendance_locks
+    lock_doc = await db.attendance_locks.find_one({"date": clean_date})
+    if lock_doc:
+        if lock_doc.get("locked") is False:
+            can_edit_until = lock_doc.get("can_edit_until")
+            if can_edit_until:
+                try:
+                    clean_str = str(can_edit_until).replace("Z", "+00:00")
+                    deadline_dt = datetime.fromisoformat(clean_str).astimezone(ist_tz)
+                    if now_ist <= deadline_dt:
+                        return  # Admin explicitly unlocked and within deadline
+                except Exception:
+                    pass
+        elif lock_doc.get("locked") is True:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Attendance for date '{clean_date}' has been locked by Administrator."
+            )
+
+    try:
+        slot1_start, lock_deadline = compute_slot1_start_and_deadline_ist(clean_date)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid date format: '{clean_date}'. Expected YYYY-MM-DD."
+        )
+
+    if now_ist < slot1_start:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Attendance for {clean_date} is not yet open. It unlocks at 08:00 AM IST on {clean_date}."
+        )
+
+    if now_ist > lock_deadline:
+        cutoff_label = lock_deadline.strftime("%d-%b-%Y %I:%M %p IST")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Attendance for {clean_date} is locked: the 48-hour editing window expired at {cutoff_label}. Please contact an Administrator to unlock."
+        )
+
 @router.get("/stream")
 async def attendance_stream(request: Request):
     """
@@ -222,8 +310,9 @@ async def create_or_upsert_attendance(
     db: AsyncIOMotorDatabase = Depends(get_database),
     current_user: Dict[str, Any] = Depends(require_staff)
 ):
-    """Mark attendance for a cadet in a slot with upsert and 24-hour lock check."""
+    """Mark attendance for a cadet in a slot with upsert and 48-hour lock check."""
     check_leader_slot_lock(record.slot, record.date, current_user)
+    await check_teacher_attendance_lock(record.date, current_user, db)
 
     query = {
         "student_id": record.student_id,
@@ -237,7 +326,7 @@ async def create_or_upsert_attendance(
         if is_locked and current_user.get("role") != "admin":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Attendance record is locked: cannot be modified after 24 hours of upload (expired at {can_edit_until})."
+                detail=f"Attendance record is locked: cannot be modified after 48 hours of slot unlock (expired at {can_edit_until})."
             )
 
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -293,70 +382,70 @@ async def bulk_save_attendance(
 ):
     """
     Bulk upsert 3-slot muster table attendance records in MongoDB (Admin/Teacher only).
-    Enforces 24-hour locking window and broadcasts real-time updates.
+    Uses high-speed MongoDB bulk_write to prevent timeouts and enforces 48-hour rule.
     """
     now_iso = datetime.now(timezone.utc).isoformat()
     default_marker = current_user.get("full_name") or current_user.get("username")
 
-    # Pre-validation: check if leader slot is unlocked and if any record being touched is already locked
+    if not payload.records:
+        return []
+
+    # 1. Fast pre-validation per UNIQUE date (O(1) checks instead of 100+ separate checks)
+    affected_dates = {item.date for item in payload.records}
+    for d in affected_dates:
+        await check_teacher_attendance_lock(d, current_user, db)
+
     for item in payload.records:
         check_leader_slot_lock(item.slot, item.date, current_user)
-        query = {
-            "student_id": item.student_id,
-            "date": item.date,
-            "slot": item.slot
-        }
-        existing = await db.attendance.find_one(query)
-        if existing:
-            is_locked, _, can_edit_until = compute_lock_status(existing)
-            if is_locked and current_user.get("role") != "admin":
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Attendance for date '{item.date}' is locked: the 24-hour editing window expired at {can_edit_until}."
-                )
 
-    saved_records = []
-    affected_dates = set()
-
+    # 2. Build bulk write operations (executed in a single network roundtrip to MongoDB)
+    operations = []
     for item in payload.records:
         query = {
             "student_id": item.student_id,
             "date": item.date,
             "slot": item.slot
         }
-        existing = await db.attendance.find_one(query)
-        uploaded_at = (existing.get("uploaded_at") if existing else None) or item.uploaded_at or now_iso
-        created_at = (existing.get("created_at") if existing else None) or item.created_at or now_iso
-        item_id = item.id or (existing.get("id") if existing else None) or f"att-{uuid.uuid4().hex[:8]}"
+        item_id = item.id or f"att-{uuid.uuid4().hex[:8]}"
+        created_at = item.created_at or now_iso
+        uploaded_at = item.uploaded_at or now_iso
 
-        doc = await db.attendance.find_one_and_update(
-            query,
-            {
-                "$set": {
-                    "student_id": item.student_id,
-                    "roll_no": item.roll_no,
-                    "date": item.date,
-                    "slot": item.slot,
-                    "course": item.course,
-                    "status": item.status,
-                    "topic_or_module": item.topic_or_module,
-                    "remarks": item.remarks,
-                    "marked_by": item.marked_by or default_marker,
-                    "uploaded_at": uploaded_at
+        operations.append(
+            UpdateOne(
+                query,
+                {
+                    "$set": {
+                        "student_id": item.student_id,
+                        "roll_no": item.roll_no,
+                        "date": item.date,
+                        "slot": item.slot,
+                        "course": item.course,
+                        "status": item.status,
+                        "topic_or_module": item.topic_or_module,
+                        "remarks": item.remarks,
+                        "marked_by": item.marked_by or default_marker,
+                        "uploaded_at": uploaded_at
+                    },
+                    "$setOnInsert": {
+                        "_id": item_id,
+                        "id": item_id,
+                        "created_at": created_at
+                    }
                 },
-                "$setOnInsert": {
-                    "_id": item_id,
-                    "id": item_id,
-                    "created_at": created_at
-                }
-            },
-            upsert=True,
-            return_document=True
+                upsert=True
+            )
         )
-        saved_records.append(doc_to_attendance_out(doc))
-        affected_dates.add(item.date)
 
-    # Broadcast real-time update to all active clients (students, teachers, admins)
+    if operations:
+        await db.attendance.bulk_write(operations, ordered=False)
+
+    # 3. Retrieve saved records for affected dates
+    cursor = db.attendance.find({"date": {"$in": list(affected_dates)}}).sort([("date", -1), ("slot", 1)])
+    saved_records = []
+    async for doc in cursor:
+        saved_records.append(doc_to_attendance_out(doc))
+
+    # 4. Broadcast real-time update to all active clients (students, teachers, admins)
     await broadcaster.broadcast({
         "event": "attendance_updated",
         "action": "bulk_upload",
@@ -380,12 +469,13 @@ async def update_attendance(
         raise HTTPException(status_code=404, detail="Attendance record not found")
     
     check_leader_slot_lock(existing.get("slot"), existing.get("date"), current_user)
+    await check_teacher_attendance_lock(existing.get("date"), current_user, db)
 
     is_locked, _, can_edit_until = compute_lock_status(existing)
     if is_locked and current_user.get("role") != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Attendance record is locked: cannot be modified after 24 hours of upload (expired at {can_edit_until})."
+            detail=f"Attendance record is locked: cannot be modified after 48 hours of slot unlock (expired at {can_edit_until})."
         )
 
     update_fields = {}
@@ -427,12 +517,13 @@ async def delete_attendance(
         raise HTTPException(status_code=404, detail="Attendance record not found")
 
     check_leader_slot_lock(existing.get("slot"), existing.get("date"), current_user)
+    await check_teacher_attendance_lock(existing.get("date"), current_user, db)
 
     is_locked, _, can_edit_until = compute_lock_status(existing)
     if is_locked and current_user.get("role") != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Attendance record is locked: cannot be deleted after 24 hours of upload (expired at {can_edit_until})."
+            detail=f"Attendance record is locked: cannot be deleted after 48 hours of slot unlock (expired at {can_edit_until})."
         )
 
     await db.attendance.delete_one({"_id": existing["_id"]})
@@ -454,12 +545,13 @@ async def clear_day_attendance(
     db: AsyncIOMotorDatabase = Depends(get_database),
     current_user: Dict[str, Any] = Depends(require_staff)
 ):
-    """Reset attendance records for a specific date (restricted to 24 hours)."""
+    """Reset attendance records for a specific date (restricted to 48 hours)."""
     if current_user.get("role") == "leader":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Leaders cannot clear day attendance. Please contact an administrator."
         )
+    await check_teacher_attendance_lock(date, current_user, db)
     filter_q = {"date": date}
     if course:
         filter_q["course"] = course
@@ -470,7 +562,7 @@ async def clear_day_attendance(
         if is_locked and current_user.get("role") != "admin":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Attendance for date '{date}' is locked: cannot be cleared after 24 hours of upload (expired at {can_edit_until})."
+                detail=f"Attendance for date '{date}' is locked: cannot be cleared after 48 hours of slot unlock (expired at {can_edit_until})."
             )
 
     res = await db.attendance.delete_many(filter_q)
@@ -520,11 +612,11 @@ async def unlock_day_attendance(
 ):
     """
     Admin endpoint to unlock attendance for a specific date.
-    Resets the 24-hour editing window, sets is_locked=False, and broadcasts update.
+    Resets the 48-hour editing window, sets is_locked=False, and broadcasts update.
     """
     clean_date = date.strip()
     now_iso = datetime.now(timezone.utc).isoformat()
-    new_deadline = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+    new_deadline = (datetime.now(timezone.utc) + timedelta(hours=48)).isoformat()
     admin_name = current_user.get("full_name") or current_user.get("username")
 
     await db.attendance.update_many(
@@ -565,7 +657,7 @@ async def unlock_day_attendance(
         "date": clean_date,
         "locked": False,
         "can_edit_until": new_deadline,
-        "message": f"Attendance for {clean_date} has been unlocked by Administrator."
+        "message": f"Attendance for {clean_date} has been unlocked for 48 hours by Administrator."
     }
 
 @router.post("/day/{date}/lock")
@@ -627,21 +719,67 @@ async def get_day_lock_status(
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     clean_date = date.strip()
+    now_ist = get_ist_now()
+    ist_tz = timezone(timedelta(hours=5, minutes=30))
+    role = current_user.get("role")
+
     lock_doc = await db.attendance_locks.find_one({"date": clean_date})
     if lock_doc:
+        can_edit = lock_doc.get("can_edit_until")
+        is_manually_locked = bool(lock_doc.get("locked"))
+        if not is_manually_locked and can_edit:
+            try:
+                deadline_dt = datetime.fromisoformat(str(can_edit).replace("Z", "+00:00")).astimezone(ist_tz)
+                if now_ist > deadline_dt:
+                    is_manually_locked = True
+            except Exception:
+                pass
+        
+        rem_hours = 0.0
+        if not is_manually_locked and can_edit:
+            try:
+                deadline_dt = datetime.fromisoformat(str(can_edit).replace("Z", "+00:00")).astimezone(ist_tz)
+                rem_hours = max(0.0, round((deadline_dt - now_ist).total_seconds() / 3600.0, 1))
+            except Exception:
+                pass
+
         return {
             "date": clean_date,
-            "locked": bool(lock_doc.get("locked")),
-            "can_edit_until": lock_doc.get("can_edit_until")
+            "locked": is_manually_locked if role != "admin" else False,
+            "is_future": False,
+            "can_edit_until": can_edit,
+            "remaining_hours": rem_hours,
+            "message": "Locked by Administrator." if is_manually_locked else f"Unlocked (Editable for {rem_hours}h)"
         }
-    sample = await db.attendance.find_one({"date": clean_date})
-    if sample:
-        is_locked, uploaded_at, can_edit_until = compute_lock_status(sample)
+
+    # Evaluate default 48-hour rule starting from Slot 1 (08:00 AM IST)
+    try:
+        slot1_start, lock_deadline = compute_slot1_start_and_deadline_ist(clean_date)
+        is_future = now_ist < slot1_start
+        is_past_48h = now_ist > lock_deadline
+        is_locked = is_future or is_past_48h
+
+        if is_future:
+            rem_hours = 0.0
+            msg = f"Upcoming: unlocks at 08:00 AM IST on {clean_date} (Slot 1 start)."
+        elif is_past_48h:
+            rem_hours = 0.0
+            cutoff = lock_deadline.strftime("%d-%b-%Y %I:%M %p IST")
+            msg = f"Locked: 48-hour editing window expired at {cutoff}."
+        else:
+            diff_sec = (lock_deadline - now_ist).total_seconds()
+            rem_hours = max(0.0, round(diff_sec / 3600.0, 1))
+            msg = f"Unlocked: 48-hour editing window active ({rem_hours}h remaining)."
+
         return {
             "date": clean_date,
-            "locked": is_locked,
-            "uploaded_at": uploaded_at,
-            "can_edit_until": can_edit_until
+            "locked": is_locked if role != "admin" else False,
+            "is_future": is_future,
+            "slot1_start": slot1_start.isoformat(),
+            "can_edit_until": lock_deadline.isoformat(),
+            "remaining_hours": rem_hours,
+            "message": msg
         }
-    return {"date": clean_date, "locked": False}
+    except Exception:
+        return {"date": clean_date, "locked": False, "remaining_hours": 48.0}
 
