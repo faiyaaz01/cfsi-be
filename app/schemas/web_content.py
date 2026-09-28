@@ -180,12 +180,17 @@ class StatItemConfig(BaseModel):
         populate_by_name = True
 
 class HomePageConfigSchema(BaseModel):
-    # 1. Top Emergency Notice Bar
+    # 1. Top Emergency Notice Popup
     showNoticeBanner: bool = True
     noticeBannerText: str = "Admissions Open 2026 - Central Fire Safety Institute Vadodara"
     noticeBannerBadge: str = "Notice"
     noticeBannerLink: str = "/about#verification"
     noticeBannerBtnText: str = "Verify Student"
+    noticePill1: Optional[str] = "Admissions Open"
+    noticePill2: Optional[str] = "Batch 2026"
+    noticePill3: Optional[str] = "Vadodara, Gujarat"
+    noticeDescription: Optional[str] = "Limited seats available. Government-recognized certificate & diploma programs in Fire Safety Engineering and Industrial Safety Management."
+    noticeCloseBtnText: Optional[str] = "Close"
 
     # 2. Hero Section
     showHero: bool = True
