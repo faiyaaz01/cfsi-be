@@ -10,7 +10,8 @@ from app.routers import (
     attendance_router,
     news_router,
     web_content_router,
-    seo_router
+    seo_router,
+    users_router
 )
 
 @asynccontextmanager
@@ -47,6 +48,7 @@ app.include_router(attendance_router)
 app.include_router(news_router)
 app.include_router(web_content_router)
 app.include_router(seo_router)
+app.include_router(users_router)
 
 @app.get("/")
 def root():
@@ -71,6 +73,3 @@ def healthcheck():
         "is_mock": db_manager.is_mock,
         "message": "Connected to MongoDB" if not db_manager.is_mock else "Running on mongomock development engine"
     }
-
-from app.routers.users import router as users_router
-app.include_router(users_router)

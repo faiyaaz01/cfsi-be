@@ -4,6 +4,7 @@ from app.routers.attendance import router as attendance_router
 from app.routers.news import router as news_router
 from app.routers.web_content import router as web_content_router
 from app.routers.seo import router as seo_router
+from app.routers.users import router as users_router
 
 __all__ = [
     "auth_router",
@@ -11,5 +12,6 @@ __all__ = [
     "attendance_router",
     "news_router",
     "web_content_router",
-    "seo_router"
+    "seo_router",
+    "users_router"
 ]
