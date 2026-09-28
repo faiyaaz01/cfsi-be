@@ -1,9 +1,10 @@
 from typing import List, Dict, Any, Optional
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, status, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Response, UploadFile, File
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.database import get_database
 from app.dependencies import require_admin
+from app.services.cloudinary_service import cloudinary_service
 from app.schemas.web_content import (
     CourseOut, CourseCreate, CourseUpdate,
     TrainingDrillOut, TrainingDrillCreate, TrainingDrillUpdate,
@@ -129,9 +130,16 @@ async def delete_course(
     db: AsyncIOMotorDatabase = Depends(get_database),
     admin: Dict[str, Any] = Depends(require_admin)
 ):
-    res = await db.courses.delete_one({"$or": [{"_id": course_id}, {"id": course_id}]})
-    if res.deleted_count == 0:
+    course = await db.courses.find_one({"$or": [{"_id": course_id}, {"id": course_id}]})
+    if not course:
         raise HTTPException(status_code=404, detail="Course not found")
+    
+    # Auto-cleanup media from Cloudinary
+    thumbnail = course.get("thumbnail") or course.get("image")
+    if thumbnail:
+        await cloudinary_service.delete_image(thumbnail)
+
+    await db.courses.delete_one({"$or": [{"_id": course_id}, {"id": course_id}]})
     return None
 
 @router.delete("/courses", status_code=status.HTTP_200_OK)
@@ -139,6 +147,15 @@ async def clear_all_courses(
     db: AsyncIOMotorDatabase = Depends(get_database),
     admin: Dict[str, Any] = Depends(require_admin)
 ):
+    cursor = db.courses.find({}, {"thumbnail": 1, "image": 1})
+    images = []
+    async for doc in cursor:
+        thumb = doc.get("thumbnail") or doc.get("image")
+        if thumb:
+            images.append(thumb)
+    if images:
+        await cloudinary_service.delete_images(images)
+
     res = await db.courses.delete_many({})
     return {"message": "All courses cleared successfully", "deleted": res.deleted_count}
 
@@ -238,9 +255,15 @@ async def delete_drill(
     db: AsyncIOMotorDatabase = Depends(get_database),
     admin: Dict[str, Any] = Depends(require_admin)
 ):
-    res = await db.training_drills.delete_one({"$or": [{"_id": drill_id}, {"id": drill_id}]})
-    if res.deleted_count == 0:
+    drill = await db.training_drills.find_one({"$or": [{"_id": drill_id}, {"id": drill_id}]})
+    if not drill:
         raise HTTPException(status_code=404, detail="Training drill not found")
+    
+    # Auto-cleanup media from Cloudinary
+    if drill.get("image"):
+        await cloudinary_service.delete_image(drill["image"])
+
+    await db.training_drills.delete_one({"$or": [{"_id": drill_id}, {"id": drill_id}]})
     return None
 
 @router.delete("/drills", status_code=status.HTTP_200_OK)
@@ -248,6 +271,11 @@ async def clear_all_drills(
     db: AsyncIOMotorDatabase = Depends(get_database),
     admin: Dict[str, Any] = Depends(require_admin)
 ):
+    cursor = db.training_drills.find({}, {"image": 1})
+    images = [doc["image"] async for doc in cursor if doc.get("image")]
+    if images:
+        await cloudinary_service.delete_images(images)
+
     res = await db.training_drills.delete_many({})
     return {"message": "All ground drills cleared successfully", "deleted": res.deleted_count}
 
@@ -328,6 +356,12 @@ async def update_photo(
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields provided for update")
     
+    # If image URL changed, delete old Cloudinary image
+    if "image_url" in update_data:
+        old_doc = await db.gallery_photos.find_one({"$or": [{"_id": photo_id}, {"id": photo_id}]})
+        if old_doc and old_doc.get("image_url") and old_doc["image_url"] != update_data["image_url"]:
+            await cloudinary_service.delete_image(old_doc["image_url"])
+
     doc = await db.gallery_photos.find_one_and_update(
         {"$or": [{"_id": photo_id}, {"id": photo_id}]},
         {"$set": update_data},
@@ -343,9 +377,16 @@ async def delete_photo(
     db: AsyncIOMotorDatabase = Depends(get_database),
     admin: Dict[str, Any] = Depends(require_admin)
 ):
-    res = await db.gallery_photos.delete_one({"$or": [{"_id": photo_id}, {"id": photo_id}]})
-    if res.deleted_count == 0:
+    photo = await db.gallery_photos.find_one({"$or": [{"_id": photo_id}, {"id": photo_id}]})
+    if not photo:
         raise HTTPException(status_code=404, detail="Photo not found")
+    
+    # Auto-cleanup media from Cloudinary
+    img_url = photo.get("image_url") or photo.get("imageUrl")
+    if img_url:
+        await cloudinary_service.delete_image(img_url)
+
+    await db.gallery_photos.delete_one({"$or": [{"_id": photo_id}, {"id": photo_id}]})
     return None
 
 @router.delete("/photos", status_code=status.HTTP_200_OK)
@@ -353,6 +394,15 @@ async def clear_all_photos(
     db: AsyncIOMotorDatabase = Depends(get_database),
     admin: Dict[str, Any] = Depends(require_admin)
 ):
+    cursor = db.gallery_photos.find({}, {"image_url": 1, "imageUrl": 1})
+    urls = []
+    async for doc in cursor:
+        u = doc.get("image_url") or doc.get("imageUrl")
+        if u:
+            urls.append(u)
+    if urls:
+        await cloudinary_service.delete_images(urls)
+
     res = await db.gallery_photos.delete_many({})
     return {"message": "All photos cleared successfully", "deleted": res.deleted_count}
 
@@ -511,4 +561,46 @@ async def update_homepage_config(
         upsert=True
     )
     return config_in
+
+# =========================================================================
+# 7. CLOUDINARY MEDIA UPLOAD & DIRECT MANAGEMENT ENDPOINTS
+# =========================================================================
+@router.post("/upload-image", status_code=status.HTTP_201_CREATED)
+async def upload_image(
+    file: UploadFile = File(...),
+    admin: Dict[str, Any] = Depends(require_admin)
+):
+    """Admin endpoint to securely upload an image to Cloudinary CDN via backend."""
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Only image files (JPG, PNG, WEBP, GIF, SVG) are permitted.")
+    
+    contents = await file.read()
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Image size exceeds 10MB limit.")
+        
+    try:
+        res = await cloudinary_service.upload_image(contents, filename=file.filename or "photo.jpg")
+        return {
+            "url": res.get("secure_url") or res.get("url"),
+            "publicId": res.get("public_id"),
+            "width": res.get("width"),
+            "height": res.get("height"),
+            "format": res.get("format"),
+            "bytes": res.get("bytes")
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Image upload to Cloudinary failed: {str(e)}")
+
+@router.post("/delete-image", status_code=status.HTTP_200_OK)
+async def delete_image_asset(
+    payload: Dict[str, str],
+    admin: Dict[str, Any] = Depends(require_admin)
+):
+    """Admin endpoint to directly delete an image asset from Cloudinary CDN by URL or public_id."""
+    target = payload.get("url") or payload.get("publicId") or payload.get("public_id")
+    if not target:
+        raise HTTPException(status_code=400, detail="Target image URL or public_id is required.")
+    
+    destroyed = await cloudinary_service.delete_image(target)
+    return {"status": "success" if destroyed else "skipped", "target": target}
 

@@ -14,6 +14,7 @@ from app.schemas.student import (
 )
 from app.dependencies import get_current_user, require_admin
 from app.security import hash_password
+from app.services.cloudinary_service import cloudinary_service
 
 router = APIRouter(prefix="/api/students", tags=["Students & Registry"])
 
@@ -611,6 +612,8 @@ async def delete_student(
             roll_no = str(student["roll_no"]).strip()
         if student.get("course"):
             course = str(student["course"]).strip()
+        if student.get("photo_url"):
+            await cloudinary_service.delete_image(student["photo_url"])
 
     # Also find any linked user to collect username and user _id
     linked_users = await db.users.find({

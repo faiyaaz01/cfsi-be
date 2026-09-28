@@ -6,6 +6,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.database import get_database
 from app.schemas.news import NewsOut, NewsCreate, NewsUpdate, NewsReorderRequest
 from app.dependencies import require_admin
+from app.services.cloudinary_service import cloudinary_service
 
 router = APIRouter(prefix="/api/news", tags=["News & Bulletins"])
 
@@ -136,7 +137,14 @@ async def delete_news(
     current_user: Dict[str, Any] = Depends(require_admin)
 ):
     """Delete a news announcement from MongoDB (Admin only)."""
-    res = await db.news_posts.delete_one({"$or": [{"_id": news_id}, {"id": news_id}]})
-    if res.deleted_count == 0:
+    news = await db.news_posts.find_one({"$or": [{"_id": news_id}, {"id": news_id}]})
+    if not news:
         raise HTTPException(status_code=404, detail="News post not found")
+    
+    # Auto-cleanup media from Cloudinary
+    img_url = news.get("image_url") or news.get("imageUrl") or news.get("image")
+    if img_url:
+        await cloudinary_service.delete_image(img_url)
+
+    await db.news_posts.delete_one({"$or": [{"_id": news_id}, {"id": news_id}]})
     return None
