@@ -267,6 +267,15 @@ async def attendance_stream(request: Request):
         }
     )
 
+@router.get("/stats")
+async def get_attendance_stats(
+    db: AsyncIOMotorDatabase = Depends(get_database),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Returns quick total count of attendance documents without loading records."""
+    total = await db.attendance.count_documents({})
+    return {"total_records": total}
+
 @router.get("", response_model=List[AttendanceOut], response_model_by_alias=True)
 async def get_attendance(
     date: Optional[str] = None,
