@@ -2,8 +2,10 @@ import re
 from datetime import timedelta
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from bson import ObjectId
+import jwt
 from app.database import get_database
 from app.schemas.auth import LoginRequest, Token, UserOut
 from app.security import verify_password, create_access_token
@@ -145,5 +147,25 @@ async def token(form: OAuth2PasswordRequestForm = Depends(), db=Depends(get_data
     return await login(LoginRequest(username=form.username, password=form.password), db)
 
 @router.post("/logout", status_code=204)
-async def logout(user=Depends(get_current_user), db=Depends(get_database)):
-    await db.users.update_one({"_id": user["_id"]}, {"$inc": {"token_version": 1}})
+async def logout(
+    request: Request,
+    db: AsyncIOMotorDatabase = Depends(get_database)
+):
+    """
+    Idempotent logout: Invalidate token version if a token is present,
+    and always return 204 No Content cleanly.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token_str = auth_header.split(" ")[1]
+        try:
+            payload = jwt.decode(token_str, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+            user_id = payload.get("user_id")
+            if user_id:
+                try:
+                    await db.users.update_one({"_id": ObjectId(user_id)}, {"$inc": {"token_version": 1}})
+                except Exception:
+                    await db.users.update_one({"id": user_id}, {"$inc": {"token_version": 1}})
+        except Exception:
+            pass
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
